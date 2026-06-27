@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Moon Bowl ramen illustration</title>
+  <desc id="desc">A steaming red ramen bowl beneath a cream crescent moon on a dark background.</desc>
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#172522"/><stop offset="1" stop-color="#2f1d28"/></linearGradient>
+    <linearGradient id="bowl" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#f35b3f"/><stop offset="1" stop-color="#a8242c"/></linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#night)"/>
+  <circle cx="850" cy="190" r="112" fill="#ffe3a4"/>
+  <circle cx="900" cy="150" r="112" fill="#202129"/>
+  <g fill="none" stroke="#ffe3a4" stroke-width="18" stroke-linecap="round" opacity=".75">
+    <path d="M430 260c-70-85 70-105 0-190"/><path d="M600 240c-70-85 70-105 0-190"/><path d="M770 260c-70-85 70-105 0-190"/>
+  </g>
+  <ellipse cx="600" cy="470" rx="350" ry="115" fill="#f7c66b"/>
+  <path d="M255 475h690c-25 218-137 290-345 290S280 693 255 475Z" fill="url(#bowl)"/>
+  <path d="M342 458c95-70 175 70 270 0s168 60 255 3" fill="none" stroke="#8b4c28" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="450" cy="445" r="58" fill="#fff2c9"/><circle cx="450" cy="445" r="25" fill="#f39c3d"/>
+  <g fill="#4d814e"><ellipse cx="700" cy="425" rx="78" ry="35" transform="rotate(-18 700 425)"/><ellipse cx="760" cy="480" rx="72" ry="31" transform="rotate(20 760 480)"/></g>
+  <text x="600" y="680" text-anchor="middle" fill="#fff6df" font-family="Georgia,serif" font-size="70" font-weight="700">MOON BOWL</text>
+</svg>
+

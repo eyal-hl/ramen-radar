@@ -1,0 +1,28 @@
+{
+  "id": "place-slug",
+  "fictional": false,
+  "name": "Restaurant name",
+  "description": "Short factual description.",
+  "status": "want-to-visit",
+  "addedAt": "2026-06-27",
+  "location": {
+    "address": "Street address",
+    "city": "Tel Aviv",
+    "latitude": 32.0853,
+    "longitude": 34.7818,
+    "mapUrl": "https://maps.google.com/"
+  },
+  "links": {},
+  "priceRange": "$$",
+  "currency": "ILS",
+  "ramenStyles": [],
+  "dietaryOptions": [],
+  "tags": [],
+  "coverImage": {
+    "src": "../../assets/places/place-slug/cover.jpg",
+    "alt": "Describe the image for people who cannot see it"
+  },
+  "gallery": [],
+  "visits": []
+}
+
