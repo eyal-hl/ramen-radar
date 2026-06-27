@@ -35,6 +35,12 @@ test('has no serious accessibility violations on core pages', async ({ page }) =
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([]);
   }
+  await page.goto('/?view=map');
+  const marker = page.locator('[data-map-marker="moon-bowl-ramen"]');
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveCSS('background-color', 'rgb(56, 106, 93)');
+  const mapResults = await new AxeBuilder({ page }).analyze();
+  expect(mapResults.violations.filter(({ impact }) => impact === 'serious' || impact === 'critical')).toEqual([]);
 });
 
 test('fits a phone viewport without horizontal overflow', async ({ page }) => {
@@ -45,4 +51,28 @@ test('fits a phone viewport without horizontal overflow', async ({ page }) => {
     content: document.documentElement.scrollWidth,
   }));
   expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport);
+});
+
+test('toggles the map, persists its URL state, and opens a place popup', async ({ page }) => {
+  await page.goto('/');
+  const mapButton = page.getByRole('button', { name: 'Map' });
+  await mapButton.click();
+  await expect(mapButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(page).toHaveURL(/view=map/);
+  await expect(page.getByRole('region', { name: 'Ramen places map' })).toBeVisible();
+  await expect(page.locator('[data-directory-grid]')).toBeHidden();
+
+  await page.locator('[data-map-marker="moon-bowl-ramen"]').click();
+  await expect(page.getByRole('link', { name: 'View Moon Bowl Ramen' })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Map' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('keeps map markers synchronized with directory filters', async ({ page }) => {
+  await page.goto('/?view=map');
+  await expect(page.locator('[data-map-marker="moon-bowl-ramen"]')).toHaveCount(1);
+  await page.getByRole('searchbox', { name: 'Search the radar' }).fill('tonkotsu');
+  await expect(page.locator('[data-map-marker="moon-bowl-ramen"]')).toHaveCount(0);
+  await expect(page.getByText('No bowls on this frequency')).toBeVisible();
 });

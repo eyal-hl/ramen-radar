@@ -2,10 +2,36 @@ const form = document.querySelector<HTMLFormElement>('[data-directory-form]');
 const grid = document.querySelector<HTMLElement>('[data-directory-grid]');
 const count = document.querySelector<HTMLElement>('[data-result-count]');
 const empty = document.querySelector<HTMLElement>('[data-empty-state]');
+const mapPanel = document.querySelector<HTMLElement>('[data-map-panel]');
+const mapStatus = document.querySelector<HTMLElement>('[data-map-status]');
+const viewButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-view-button]')];
 
-if (form && grid && count && empty) {
+if (form && grid && count && empty && mapPanel && viewButtons.length === 2) {
   const cards = [...grid.querySelectorAll<HTMLElement>('[data-place-card]')];
   const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
+  let currentView = new URLSearchParams(location.search).get('view') === 'map' ? 'map' : 'list';
+  let mapController: import('./map-view').MapController | undefined;
+  let visibleIds = cards.map((card) => card.dataset.placeId ?? '');
+
+  const setView = async (view: string, update = true) => {
+    currentView = view === 'map' ? 'map' : 'list';
+    grid.hidden = currentView === 'map';
+    mapPanel.hidden = currentView !== 'map';
+    for (const button of viewButtons) button.setAttribute('aria-pressed', String(button.dataset.viewButton === currentView));
+    if (currentView === 'map') {
+      try {
+        mapController ??= (await import('./map-view')).initializeDirectoryMap();
+        mapController.sync(visibleIds);
+        requestAnimationFrame(() => mapController?.resize());
+      } catch {
+        currentView = 'list';
+        grid.hidden = false;
+        mapPanel.hidden = true;
+        if (mapStatus) mapStatus.textContent = 'The map could not load. The complete list is still available.';
+      }
+    }
+    if (update) apply();
+  };
 
   const restoreFromUrl = () => {
     const params = new URLSearchParams(location.search);
@@ -37,6 +63,8 @@ if (form && grid && count && empty) {
       card.hidden = !matches;
       return matches;
     });
+    visibleIds = visible.map((card) => card.dataset.placeId ?? '');
+    mapController?.sync(visibleIds);
 
     const compare = (a: HTMLElement, b: HTMLElement) => {
       if (sort === 'rating') {
@@ -57,6 +85,7 @@ if (form && grid && count && empty) {
       const value = field(name).value;
       if (value && value !== '0' && !(name === 'sort' && value === 'rating')) params.set(name, value);
     }
+    if (currentView === 'map') params.set('view', 'map');
     history.replaceState(null, '', `${location.pathname}${params.size ? `?${params}` : ''}`);
   };
 
@@ -64,6 +93,11 @@ if (form && grid && count && empty) {
   form.addEventListener('input', apply);
   form.addEventListener('change', apply);
   form.addEventListener('reset', () => requestAnimationFrame(apply));
+  for (const button of viewButtons) button.addEventListener('click', () => void setView(button.dataset.viewButton ?? 'list'));
+  addEventListener('popstate', () => {
+    restoreFromUrl();
+    void setView(new URLSearchParams(location.search).get('view') ?? 'list', false).then(apply);
+  });
   apply();
+  void setView(currentView, false);
 }
-

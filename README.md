@@ -4,6 +4,8 @@ A JSON-driven ramen ranking site for Givatayim and the wider Tel Aviv area. It i
 
 Restaurant facts, visits, photos, notes, and individual ratings all live in one JSON file per place. You can edit those files locally, in GitHub's mobile editor, or through an automation such as OpenClaw. Pushing a valid edit rebuilds the site automatically.
 
+The home-page **List / Map** toggle shows the same filtered places geographically. The map loads Leaflet and OpenStreetMap tiles only after Map is selected; List remains the default and continues working if JavaScript or map tiles are unavailable. Every place therefore needs accurate `latitude` and `longitude` values. OpenStreetMap attribution remains visible on the map as required.
+
 ## Local development
 
 Requires Node.js 22 or newer.

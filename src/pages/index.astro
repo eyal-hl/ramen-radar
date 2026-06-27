@@ -1,7 +1,10 @@
 ---
 import { getCollection } from 'astro:content';
 import DirectoryFilters from '../components/DirectoryFilters.astro';
+import DirectoryMap from '../components/DirectoryMap.astro';
+import DirectoryViewToggle from '../components/DirectoryViewToggle.astro';
 import PlaceCard from '../components/PlaceCard.astro';
+import { toMapPlace } from '../domain/map';
 import { sortPlaceCards, toPlaceCard } from '../domain/places';
 import BaseLayout from '../layouts/BaseLayout.astro';
 
@@ -14,6 +17,7 @@ const diets = unique(places.flatMap((place) => place.dietaryOptions));
 const prices = unique(places.map((place) => place.priceRange));
 const visited = places.filter((place) => place.status === 'visited').length;
 const visits = places.reduce((total, place) => total + place.visitCount, 0);
+const mapPlaces = places.map((place) => toMapPlace(place, import.meta.env.BASE_URL));
 ---
 
 <BaseLayout>
@@ -32,9 +36,10 @@ const visits = places.reduce((total, place) => total + place.visitCount, 0);
     </section>
 
     <section class="directory shell" aria-labelledby="directory-title">
-      <div class="section-heading section-heading--row"><div><p class="eyebrow">The running list</p><h2 id="directory-title">Ramen places</h2></div><p data-result-count aria-live="polite">{places.length} {places.length === 1 ? 'place' : 'places'}</p></div>
+      <div class="section-heading section-heading--row"><div><p class="eyebrow">The running list</p><h2 id="directory-title">Ramen places</h2></div><div class="directory-heading-tools"><p data-result-count aria-live="polite">{places.length} {places.length === 1 ? 'place' : 'places'}</p><DirectoryViewToggle /></div></div>
       <DirectoryFilters {cities} {styles} {diets} {prices} />
       <div class="place-grid" data-directory-grid>{places.map((place) => <PlaceCard {place} />)}</div>
+      <DirectoryMap places={mapPlaces} />
       <div class="empty-state" data-empty-state hidden><span aria-hidden="true">∅</span><h3>No bowls on this frequency</h3><p>Try clearing a filter or searching for something broader.</p></div>
     </section>
   </main>
@@ -42,4 +47,3 @@ const visits = places.reduce((total, place) => total + place.visitCount, 0);
     import '../scripts/directory';
   </script>
 </BaseLayout>
-
