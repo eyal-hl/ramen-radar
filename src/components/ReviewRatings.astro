@@ -1,0 +1,15 @@
+---
+import { RATING_CATEGORIES, formatScore, scoreReview } from '../domain/ratings';
+import type { Review } from '../domain/place-schema';
+interface Props { review: Review }
+const { review } = Astro.props;
+---
+<article class="review-card">
+  <header><div><h4>{review.reviewerName}</h4>{review.notes && <p>{review.notes}</p>}</div><strong>{formatScore(scoreReview(review))}</strong></header>
+  <dl class="review-ratings">
+    {RATING_CATEGORIES.flatMap(({ key, label }) => review.ratings[key] === undefined ? [] : (
+      <div><dt>{label}</dt><dd>{review.ratings[key]}</dd></div>
+    ))}
+  </dl>
+</article>
+

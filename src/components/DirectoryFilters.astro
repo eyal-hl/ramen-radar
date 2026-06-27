@@ -1,0 +1,27 @@
+---
+interface Props {
+  cities: string[];
+  styles: string[];
+  diets: string[];
+  prices: string[];
+}
+const { cities, styles, diets, prices } = Astro.props;
+---
+
+<form class="directory-filters" data-directory-form aria-label="Filter ramen places">
+  <label class="search-field">
+    <span>Search the radar</span>
+    <input type="search" name="query" placeholder="Place, city, style, tag…" autocomplete="off" />
+  </label>
+  <div class="filter-grid">
+    <label><span>Status</span><select name="status"><option value="">All statuses</option><option value="visited">Visited</option><option value="want-to-visit">Want to visit</option><option value="unavailable">Unavailable</option></select></label>
+    <label><span>City</span><select name="city"><option value="">All cities</option>{cities.map((city) => <option value={city}>{city}</option>)}</select></label>
+    <label><span>Style</span><select name="style"><option value="">All styles</option>{styles.map((style) => <option value={style}>{style}</option>)}</select></label>
+    <label><span>Dietary</span><select name="diet"><option value="">All options</option>{diets.map((diet) => <option value={diet}>{diet}</option>)}</select></label>
+    <label><span>Price</span><select name="price"><option value="">Any price</option>{prices.map((price) => <option value={price}>{price}</option>)}</select></label>
+    <label><span>Minimum rating</span><select name="minimumScore"><option value="0">Any rating</option><option value="7">7+</option><option value="8">8+</option><option value="9">9+</option></select></label>
+    <label><span>Sort by</span><select name="sort"><option value="rating">Highest rated</option><option value="recent-visit">Recently visited</option><option value="recently-added">Recently added</option><option value="name">Name</option></select></label>
+    <button class="text-button" type="reset">Clear filters</button>
+  </div>
+</form>
+

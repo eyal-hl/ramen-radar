@@ -1,0 +1,12 @@
+---
+import type { PlaceStatus } from '../domain/places';
+interface Props { status: PlaceStatus }
+const { status } = Astro.props;
+const labels: Record<PlaceStatus, string> = {
+  visited: 'Visited',
+  'want-to-visit': 'Want to visit',
+  unavailable: 'Unavailable',
+};
+---
+<span class:list={['status-chip', `status-chip--${status}`]}>{labels[status]}</span>
+

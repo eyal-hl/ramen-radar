@@ -1,0 +1,12 @@
+---
+import { formatScore } from '../domain/ratings';
+
+interface Props { score: number | null; label?: string; large?: boolean }
+const { score, label = 'Overall', large = false } = Astro.props;
+---
+
+<div class:list={['score-badge', { 'score-badge--empty': score === null, 'score-badge--large': large }]}>
+  <strong>{formatScore(score)}</strong>
+  <span>{score === null ? 'Add a visit to rank it' : `${label} · out of 10`}</span>
+</div>
+

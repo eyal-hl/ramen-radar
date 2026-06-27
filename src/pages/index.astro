@@ -1,16 +1,45 @@
 ---
+import { getCollection } from 'astro:content';
+import DirectoryFilters from '../components/DirectoryFilters.astro';
+import PlaceCard from '../components/PlaceCard.astro';
+import { sortPlaceCards, toPlaceCard } from '../domain/places';
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const entries = await getCollection('places');
+const places = sortPlaceCards(entries.map((entry) => toPlaceCard(entry.data)), 'rating');
+const unique = (values: string[]) => [...new Set(values)].sort((a, b) => a.localeCompare(b));
+const cities = unique(places.map((place) => place.location.city));
+const styles = unique(places.flatMap((place) => place.ramenStyles));
+const diets = unique(places.flatMap((place) => place.dietaryOptions));
+const prices = unique(places.map((place) => place.priceRange));
+const visited = places.filter((place) => place.status === 'visited').length;
+const visits = places.reduce((total, place) => total + place.visitCount, 0);
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width" />
-    <title>Ramen Radar</title>
-  </head>
-  <body>
-    <main>
-      <h1>Ramen Radar</h1>
-    </main>
-  </body>
-</html>
+<BaseLayout>
+  <main>
+    <section class="hero shell">
+      <div class="hero__copy">
+        <p class="eyebrow">A personal noodle field guide</p>
+        <h1>Good ramen deserves<br /><em>proper notes.</em></h1>
+        <p class="hero__intro">Tracking bowls across Givatayim and Tel Aviv—what we want to try, what we ordered, and whether the broth earned a return trip.</p>
+      </div>
+      <dl class="hero__stats">
+        <div><dt>Places</dt><dd>{places.length.toString().padStart(2, '0')}</dd></div>
+        <div><dt>Visited</dt><dd>{visited.toString().padStart(2, '0')}</dd></div>
+        <div><dt>Visits</dt><dd>{visits.toString().padStart(2, '0')}</dd></div>
+      </dl>
+    </section>
+
+    <section class="directory shell" aria-labelledby="directory-title">
+      <div class="section-heading section-heading--row"><div><p class="eyebrow">The running list</p><h2 id="directory-title">Ramen places</h2></div><p data-result-count aria-live="polite">{places.length} {places.length === 1 ? 'place' : 'places'}</p></div>
+      <DirectoryFilters {cities} {styles} {diets} {prices} />
+      <div class="place-grid" data-directory-grid>{places.map((place) => <PlaceCard {place} />)}</div>
+      <div class="empty-state" data-empty-state hidden><span aria-hidden="true">∅</span><h3>No bowls on this frequency</h3><p>Try clearing a filter or searching for something broader.</p></div>
+    </section>
+  </main>
+  <script>
+    import '../scripts/directory';
+  </script>
+</BaseLayout>
+

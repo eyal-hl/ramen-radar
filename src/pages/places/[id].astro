@@ -1,0 +1,59 @@
+---
+import { Image } from 'astro:assets';
+import { getCollection, type CollectionEntry } from 'astro:content';
+import CategoryScores from '../../components/CategoryScores.astro';
+import ImageGallery from '../../components/ImageGallery.astro';
+import PlaceMeta from '../../components/PlaceMeta.astro';
+import ScoreBadge from '../../components/ScoreBadge.astro';
+import StatusChip from '../../components/StatusChip.astro';
+import VisitCard from '../../components/VisitCard.astro';
+import { aggregatePlace } from '../../domain/ratings';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+export async function getStaticPaths() {
+  const places = await getCollection('places');
+  return places.map((entry) => ({ params: { id: entry.data.id }, props: { entry } }));
+}
+
+interface Props { entry: CollectionEntry<'places'> }
+const { entry } = Astro.props;
+const place = entry.data;
+const aggregate = aggregatePlace(place);
+const visits = [...place.visits].sort((a, b) => b.date.localeCompare(a.date));
+---
+
+<BaseLayout title={place.name} description={place.description}>
+  <main>
+    <section class="detail-hero shell">
+      <a class="back-link" href={import.meta.env.BASE_URL}>← All places</a>
+      <div class="detail-hero__grid">
+        <div class="detail-cover">
+          <Image src={place.coverImage.src} alt={place.coverImage.alt} width={1100} height={760} />
+          {place.fictional && <span class="fictional-flag">Fictional example · not a real venue</span>}
+        </div>
+        <div class="detail-hero__copy">
+          <div class="place-card__eyebrow"><StatusChip status={place.status} /><span>{place.location.city} · {place.priceRange}</span></div>
+          <h1>{place.name}</h1>
+          {place.alternateName && <p class="alternate-name">{place.alternateName}</p>}
+          <p class="detail-description">{place.description}</p>
+          <div class="tag-list">{place.ramenStyles.map((style) => <span>{style}</span>)}{place.tags.filter((tag) => tag !== 'fictional').map((tag) => <span>{tag}</span>)}</div>
+          <ScoreBadge score={aggregate.overall} large />
+        </div>
+      </div>
+      <PlaceMeta {place} />
+    </section>
+
+    <section class="detail-section shell score-section">
+      <div class="section-heading"><p class="eyebrow">Across every visit</p><h2>Category breakdown</h2><p>{aggregate.reviewCount} rated reviewer experiences across {aggregate.ratedVisitCount} visits.</p></div>
+      <CategoryScores categories={aggregate.categories} />
+    </section>
+
+    <ImageGallery images={place.gallery} />
+
+    <section class="detail-section shell" aria-labelledby="visits-heading">
+      <div class="section-heading"><p class="eyebrow">The history</p><h2 id="visits-heading">Visit log</h2></div>
+      {visits.length > 0 ? <div class="visit-list">{visits.map((visit, index) => <VisitCard {visit} number={visits.length - index} />)}</div> : <div class="empty-state"><span aria-hidden="true">⌁</span><h3>Still on the wish list</h3><p>Add the first visit to begin ranking this place.</p></div>}
+    </section>
+  </main>
+</BaseLayout>
+

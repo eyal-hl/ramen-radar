@@ -1,0 +1,21 @@
+---
+import type { Place } from '../domain/place-schema';
+interface Props { place: Place }
+const { place } = Astro.props;
+---
+<section class="place-meta" aria-label="Restaurant details">
+  <dl>
+    <div><dt>Address</dt><dd>{place.location.address}, {place.location.city}</dd></div>
+    <div><dt>Price</dt><dd>{place.priceRange} · {place.currency}</dd></div>
+    {place.openingHoursNote && <div><dt>Hours</dt><dd>{place.openingHoursNote}</dd></div>}
+    {place.dietaryOptions.length > 0 && <div><dt>Dietary</dt><dd>{place.dietaryOptions.join(' · ')}</dd></div>}
+  </dl>
+  <div class="action-links">
+    <a href={place.location.mapUrl} target="_blank" rel="noreferrer">Open map ↗</a>
+    {place.links.menu && <a href={place.links.menu} target="_blank" rel="noreferrer">Menu ↗</a>}
+    {place.links.website && <a href={place.links.website} target="_blank" rel="noreferrer">Website ↗</a>}
+    {place.links.reservations && <a href={place.links.reservations} target="_blank" rel="noreferrer">Reservations ↗</a>}
+    {place.links.phone && <a href={`tel:${place.links.phone}`}>Call</a>}
+  </div>
+</section>
+
