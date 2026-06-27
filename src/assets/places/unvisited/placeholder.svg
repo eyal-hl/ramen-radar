@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Ramen place waiting to be visited</title>
+  <desc id="desc">A stylized empty ramen bowl with chopsticks and a location pin.</desc>
+  <rect width="1200" height="800" fill="#172522"/>
+  <circle cx="940" cy="170" r="190" fill="#253d37"/>
+  <path d="M345 355h510c-24 208-107 300-255 300s-231-92-255-300Z" fill="#d64730"/>
+  <path d="M360 355h480" stroke="#f7f0df" stroke-width="26" stroke-linecap="round"/>
+  <path d="M420 160l390 115M450 110l390 115" stroke="#e8ad52" stroke-width="22" stroke-linecap="round"/>
+  <path d="M600 265c-66 0-120 52-120 116 0 88 120 188 120 188s120-100 120-188c0-64-54-116-120-116Zm0 168a52 52 0 1 1 0-104 52 52 0 0 1 0 104Z" fill="#f7f0df"/>
+  <text x="600" y="730" text-anchor="middle" fill="#f7f0df" font-family="Georgia,serif" font-size="56">ON THE RAMEN RADAR</text>
+</svg>
+
