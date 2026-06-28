@@ -19,8 +19,8 @@
   "dietaryOptions": [],
   "tags": ["sushi", "Asian", "saved"],
   "coverImage": {
-    "src": "../../assets/places/unvisited/placeholder.svg",
-    "alt": "Illustration marking Neo Sushi Bar as a place waiting to be visited"
+    "src": "../../assets/places/neo-sushi-bar/cover.jpg",
+    "alt": "Neo Sushi Bar storefront with red lanterns and outdoor seating"
   },
   "gallery": [],
   "visits": []
