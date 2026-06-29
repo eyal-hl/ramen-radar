@@ -1,0 +1,27 @@
+{
+  "id": "koko-neko",
+  "fictional": false,
+  "name": "Koko Neko",
+  "description": "A ramen bar in Florentin, Tel Aviv-Yafo saved for a future ramen visit.",
+  "status": "want-to-visit",
+  "addedAt": "2026-06-29",
+  "location": {
+    "address": "Florentin Street 5",
+    "city": "Tel Aviv-Yafo",
+    "latitude": 32.056312,
+    "longitude": 34.7674514,
+    "mapUrl": "https://www.google.com/maps/search/?api=1&query=Koko%20Neko%2C%20Florentin%205%2C%20Tel%20Aviv-Yafo"
+  },
+  "links": {},
+  "priceRange": "$$",
+  "currency": "ILS",
+  "ramenStyles": [],
+  "dietaryOptions": [],
+  "tags": ["ramen", "Japanese", "saved"],
+  "coverImage": {
+    "src": "../../assets/places/koko-neko/cover.jpg",
+    "alt": "Koko Neko Ramen illustrated banner with a cartoon ramen bowl and cat chef logo"
+  },
+  "gallery": [],
+  "visits": []
+}
