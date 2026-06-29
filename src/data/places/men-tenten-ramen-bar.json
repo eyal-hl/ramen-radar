@@ -1,0 +1,30 @@
+{
+  "id": "men-tenten-ramen-bar",
+  "fictional": false,
+  "name": "Men Tenten Ramen Bar",
+  "description": "A ramen bar and izakaya on Nahalat Binyamin in Tel Aviv-Yafo saved for a future ramen visit.",
+  "status": "want-to-visit",
+  "addedAt": "2026-06-29",
+  "location": {
+    "address": "Nahalat Binyamin Street 57",
+    "city": "Tel Aviv-Yafo",
+    "latitude": 32.064139,
+    "longitude": 34.771453,
+    "mapUrl": "https://www.google.com/maps/search/?api=1&query=Men%20Tenten%20Ramen%20Bar%2C%20Nahalat%20Binyamin%2057%2C%20Tel%20Aviv-Yafo"
+  },
+  "links": {
+    "website": "http://mentententlv.com",
+    "phone": "+972 3-672-5318"
+  },
+  "priceRange": "$$",
+  "currency": "ILS",
+  "ramenStyles": [],
+  "dietaryOptions": [],
+  "tags": ["ramen", "Japanese", "izakaya", "saved"],
+  "coverImage": {
+    "src": "../../assets/places/men-tenten-ramen-bar/cover.jpg",
+    "alt": "Men Tenten Ramen Bar storefront with a red neon sign above the counter"
+  },
+  "gallery": [],
+  "visits": []
+}
