@@ -19,7 +19,7 @@
   "dietaryOptions": [],
   "tags": ["Asian", "saved"],
   "coverImage": {
-    "src": "../../assets/places/unvisited/placeholder.svg",
+    "src": "/images/places/unvisited/placeholder.svg",
     "alt": "Illustration marking China Doll as a place waiting to be visited"
   },
   "gallery": [],

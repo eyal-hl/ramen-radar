@@ -1,0 +1,7 @@
+---
+import ManageApp from '../../components/app/ManageApp';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+---
+<BaseLayout title="Manage">
+  <ManageApp client:only="preact" />
+</BaseLayout>

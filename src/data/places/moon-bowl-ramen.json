@@ -26,13 +26,13 @@
   "dietaryOptions": ["vegetarian option", "vegan option"],
   "tags": ["fictional", "neighborhood", "late lunch", "house noodles"],
   "coverImage": {
-    "src": "../../assets/places/moon-bowl-ramen/cover.svg",
+    "src": "/images/places/moon-bowl-ramen/cover.svg",
     "alt": "Illustration of a glowing ramen bowl beneath a crescent moon",
     "caption": "Original fictional example artwork"
   },
   "gallery": [
     {
-      "src": "../../assets/places/moon-bowl-ramen/shop.svg",
+      "src": "/images/places/moon-bowl-ramen/shop.svg",
       "alt": "Illustration of the fictional Moon Bowl storefront at night",
       "caption": "The imaginary storefront"
     }
@@ -88,7 +88,7 @@
       "notes": "A fictional rainy-evening return for the spicy bowl.",
       "photos": [
         {
-          "src": "../../assets/places/moon-bowl-ramen/cover.svg",
+          "src": "/images/places/moon-bowl-ramen/cover.svg",
           "alt": "Stylized illustration representing the spicy ramen served on the return visit",
           "caption": "Example visit image"
         }

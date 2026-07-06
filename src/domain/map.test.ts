@@ -15,7 +15,7 @@ describe('map place model', () => {
     expect(toMapPlace(card, '/ramen-radar')).toEqual({
       id: 'moon-bowl', name: 'Moon Bowl', city: 'Givatayim', status: 'visited',
       priceRange: '$$', score: 8.25, latitude: 32.0718, longitude: 34.8124,
-      detailUrl: '/ramen-radar/places/moon-bowl/',
+      detailUrl: '/ramen-radar/place/?id=moon-bowl',
     });
   });
 

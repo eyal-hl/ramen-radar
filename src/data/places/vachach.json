@@ -19,7 +19,7 @@
   "dietaryOptions": [],
   "tags": ["Japanese", "saved"],
   "coverImage": {
-    "src": "../../assets/places/unvisited/placeholder.svg",
+    "src": "/images/places/unvisited/placeholder.svg",
     "alt": "Illustration marking Vachach as a place waiting to be visited"
   },
   "gallery": [],

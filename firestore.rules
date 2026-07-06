@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isEditor() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/editors/$(request.auth.uid));
+    }
+
+    function validPlace(placeId) {
+      return request.resource.data.id == placeId
+        && request.resource.data.archived is bool
+        && request.resource.data.updatedAt is string
+        && request.resource.data.name is string
+        && request.resource.data.description is string
+        && request.resource.data.status in ['want-to-visit', 'visited', 'unavailable']
+        && request.resource.data.location is map
+        && request.resource.data.coverImage is map
+        && request.resource.data.visits is list;
+    }
+
+    match /places/{placeId} {
+      allow get, list: if resource.data.archived == false || isEditor();
+      allow create, update: if isEditor() && validPlace(placeId);
+      allow delete: if false;
+    }
+
+    match /editors/{editorId} {
+      allow get: if signedIn() && request.auth.uid == editorId;
+      allow list, create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

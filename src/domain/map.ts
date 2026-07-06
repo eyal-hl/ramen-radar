@@ -27,6 +27,6 @@ export function toMapPlace(place: PlaceCard, base: string): MapPlace {
     score: place.score,
     latitude: place.location.latitude,
     longitude: place.location.longitude,
-    detailUrl: joinBase(base, `places/${place.id}/`),
+    detailUrl: `${joinBase(base, 'place/')}?id=${encodeURIComponent(place.id)}`,
   };
 }

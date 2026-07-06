@@ -6,6 +6,7 @@ import { markerClassForStatus, type MapPlace } from '../domain/map';
 export interface MapController {
   sync(visibleIds: string[]): void;
   resize(): void;
+  destroy(): void;
 }
 
 const statusLabels: Record<MapPlace['status'], string> = {
@@ -30,13 +31,13 @@ function popupContent(place: MapPlace): HTMLElement {
   return content;
 }
 
-export function initializeDirectoryMap(): MapController {
-  const element = document.querySelector<HTMLElement>('[data-directory-map]');
+export function initializeDirectoryMap(initialPlaces?: MapPlace[], target?: HTMLElement): MapController {
+  const element = target ?? document.querySelector<HTMLElement>('[data-directory-map]');
   const data = document.querySelector<HTMLScriptElement>('[data-map-data]');
   const status = document.querySelector<HTMLElement>('[data-map-status]');
-  if (!element || !data) throw new Error('Map elements are unavailable.');
+  if (!element || (!initialPlaces && !data)) throw new Error('Map elements are unavailable.');
 
-  const places = JSON.parse(data.textContent ?? '[]') as MapPlace[];
+  const places = initialPlaces ?? JSON.parse(data?.textContent ?? '[]') as MapPlace[];
   const map = L.map(element, { scrollWheelZoom: false }).setView([32.075, 34.795], 12);
   const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
@@ -80,6 +81,6 @@ export function initializeDirectoryMap(): MapController {
     else map.setView([32.075, 34.795], 12);
   };
 
-  return { sync, resize: () => map.invalidateSize() };
+  return { sync, resize: () => map.invalidateSize(), destroy: () => map.remove() };
 }
 

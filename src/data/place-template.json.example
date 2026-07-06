@@ -19,7 +19,7 @@
   "dietaryOptions": [],
   "tags": [],
   "coverImage": {
-    "src": "../../assets/places/place-slug/cover.jpg",
+    "src": "/images/places/place-slug/cover.jpg",
     "alt": "Describe the image for people who cannot see it"
   },
   "gallery": [],
