@@ -7,3 +7,8 @@ coverage/
 preview.*.log
 debug.log
 .worktrees/
+.env
+.env.*
+!.env.example
+.firebase/
+firebase-debug.log

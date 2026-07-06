@@ -30,7 +30,7 @@ const homeUrl = joinBase(import.meta.env.BASE_URL, '');
         <span class="brand-mark" aria-hidden="true">RR</span>
         <span>Ramen Radar</span>
       </a>
-      <span class="site-kicker">Givatayim → Tel Aviv</span>
+      <nav class="site-nav" aria-label="Site"><span class="site-kicker">Givatayim → Tel Aviv</span><a href={joinBase(import.meta.env.BASE_URL, 'manage/')}>Manage</a></nav>
     </header>
     <slot />
     <footer class="site-footer">

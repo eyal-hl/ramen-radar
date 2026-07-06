@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'astro/zod';
+import { z } from 'zod';
 import { createPlaceSchema } from './place-schema';
 
 const plannedPlace = {

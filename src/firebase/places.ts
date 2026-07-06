@@ -16,6 +16,7 @@ import {
   type FirestorePlace,
 } from '../domain/firestore-model';
 import { getFirebaseServices } from './client';
+import { isPermissionDenied } from './errors';
 
 function databaseOrDefault(database?: Firestore): Firestore {
   return database ?? getFirebaseServices().database;
@@ -33,10 +34,15 @@ export async function listEditorPlaces(database?: Firestore): Promise<FirestoreP
 }
 
 export async function getPublicPlace(id: string, database?: Firestore): Promise<FirestorePlace | null> {
-  const snapshot = await getDoc(doc(databaseOrDefault(database), 'places', id));
-  if (!snapshot.exists()) return null;
-  const place = parsePlaceDocument(snapshot.data());
-  return place.archived ? null : place;
+  try {
+    const snapshot = await getDoc(doc(databaseOrDefault(database), 'places', id));
+    if (!snapshot.exists()) return null;
+    const place = parsePlaceDocument(snapshot.data());
+    return place.archived ? null : place;
+  } catch (error) {
+    if (isPermissionDenied(error)) return null;
+    throw error;
+  }
 }
 
 export async function isApprovedEditor(uid: string, database?: Firestore): Promise<boolean> {

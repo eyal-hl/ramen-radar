@@ -91,18 +91,12 @@ First send a harmless request:
 Use ramen-radar-maintainer to inspect the Ramen Radar repository and tell me whether it is clean and ready. Do not change anything.
 ```
 
-Then try a real request:
+Then try an image request:
 
 ```text
-Add this Google Maps place to Ramen Radar as want-to-visit: <maps-link>
-```
-
-or:
-
-```text
-Record a visit today to <place>. Eyal rated broth 9, noodles 8, value 7, and wouldReturn 9. We ordered <dish>.
+Upload this supplied image for <place-id> as <filename>, then give me the repository image path to paste into the Ramen Radar editor.
 ```
 
 ## 6. Expected behavior
 
-OpenClaw should pull `master`, edit only place JSON/assets, run all validations, commit, and push. GitHub Actions then deploys the site. If the worktree is dirty, a venue is ambiguous, validation fails, or GitHub authentication is unavailable, it should stop and explain instead of forcing the update.
+OpenClaw should pull `master`, add only the requested file under `public/images/places/`, run all validations, commit, and push. GitHub Actions then deploys the image. Place and review data is edited through `/manage/`, not through repository JSON. If the worktree is dirty, validation fails, or GitHub authentication is unavailable, OpenClaw should stop and explain instead of forcing the update.

@@ -1,10 +1,74 @@
 # Ramen Radar
 
-A JSON-driven ramen ranking site for Givatayim and the wider Tel Aviv area. It is an Astro static site designed for GitHub Pages: no database, login, admin panel, or server is required.
+An Astro directory and ranking site for ramen around Givatayim and Tel Aviv. GitHub Pages hosts the static application, while Cloud Firestore supplies live place, visit, and review data. Approved Google accounts edit the directory at `/manage/`.
 
-Restaurant facts, visits, photos, notes, and individual ratings all live in one JSON file per place. You can edit those files locally, in GitHub's mobile editor, or through an automation such as OpenClaw. Pushing a valid edit rebuilds the site automatically.
+## Architecture
 
-The home-page **List / Map** toggle shows the same filtered places geographically. The map loads Leaflet and OpenStreetMap tiles only after Map is selected; List remains the default and continues working if JavaScript or map tiles are unavailable. Every place therefore needs accurate `latitude` and `longitude` values. OpenStreetMap attribution remains visible on the map as required.
+- Public reads come from `places/{placeId}` in Firestore.
+- Google Authentication identifies editors.
+- A user may edit only when `editors/{uid}` exists. Browser clients cannot modify the editor allowlist.
+- Security Rules hide archived places and deny all unapproved writes.
+- Repository images live under `public/images/places/`; HTTPS image URLs are also accepted.
+- Public detail URLs use `/place/?id=<place-id>` so newly added places work immediately on GitHub Pages.
+- The existing JSON documents are retained only as the one-time migration seed and deterministic test fixture. Firestore is the production source of truth.
+
+## Firebase setup
+
+The Spark plan is sufficient; no billing account or Firebase Storage bucket is required.
+
+1. Create a Firebase project and one Firestore database in production mode.
+2. Enable **Authentication → Sign-in method → Google**.
+3. Register a Web App and copy its public configuration.
+4. Add the GitHub Pages hostname to **Authentication → Settings → Authorized domains**.
+5. Copy `.env.example` to `.env` and fill in the four public values.
+6. Authenticate the Firebase CLI and deploy the rules:
+
+```powershell
+npx firebase-tools@15.22.4 login
+npx firebase-tools@15.22.4 use <project-id>
+npx firebase-tools@15.22.4 deploy --only firestore:rules,firestore:indexes
+```
+
+For GitHub Pages, create these repository variables under **Settings → Secrets and variables → Actions → Variables**:
+
+- `PUBLIC_FIREBASE_API_KEY`
+- `PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `PUBLIC_FIREBASE_PROJECT_ID`
+- `PUBLIC_FIREBASE_APP_ID`
+
+Firebase’s Web API key is public configuration; authorization is enforced by Authentication and Firestore Security Rules. Never add a service-account key to this repository.
+
+## Bootstrap the first editor and data
+
+1. Deploy the site and open `/manage/`.
+2. Sign in once with the owner’s Google account. The access-pending page displays its Firebase UID.
+3. In Firebase Console, create `editors/<owner-uid>` with an optional `email` field.
+4. Refresh `/manage/`. When the `places` collection is empty, select **Import existing JSON places**.
+5. Verify the imported directory. Afterward, use `/manage/` for all place and review data.
+
+To approve another editor, have them sign in once and then create `editors/<their-uid>` in Firebase Console. Removing that document revokes future writes.
+
+## Editing content
+
+The management page supports:
+
+- Creating and editing places, location data, links, tags, and dietary options.
+- Adding repeat visits, dishes, visit photos, reviewers, notes, and partial ratings.
+- Repository image paths such as `/images/places/men-ten-ten/cover.jpg` and public HTTPS URLs.
+- Archiving a place so it disappears publicly without permanent deletion.
+- Optimistic concurrency: a stale editor must reload instead of overwriting a newer save.
+
+Scores are integers from 1–10. Supported categories are `broth`, `noodles`, `toppings`, `egg`, `portion`, `value`, `service`, `atmosphere`, and `wouldReturn`. Missing categories are ignored rather than treated as zero.
+
+## Repository images
+
+Add images under `public/images/places/<place-id>/`, commit, and push them. After GitHub Pages deploys, reference them from the editor as:
+
+```text
+/images/places/<place-id>/<filename>
+```
+
+Every image requires meaningful alt text. External images must use HTTPS. Direct image uploads are intentionally not supported, keeping the project on Firebase Spark without payment information.
 
 ## Local development
 
@@ -12,10 +76,18 @@ Requires Node.js 22 or newer.
 
 ```powershell
 npm install
+Copy-Item .env.example .env
 npm run dev
 ```
 
-Open `http://localhost:4321`. Before pushing a change, run:
+To run locally with the bundled migration fixture instead of Firebase:
+
+```powershell
+$env:PUBLIC_DATA_MODE='fixture'
+npm run dev
+```
+
+Validation commands:
 
 ```powershell
 npm test
@@ -23,151 +95,18 @@ npm run check
 npm run build
 ```
 
-For browser and accessibility tests, install Chromium once and run the suite:
+Firestore Rules tests additionally require Java 21 or newer:
 
 ```powershell
-npx playwright install chromium
+npm run test:rules
+```
+
+The browser suite uses fixture mode and does not contact production Firebase:
+
+```powershell
 npm run test:e2e
 ```
 
-## Adding a place
+## Deployment
 
-1. Copy `src/data/place-template.json.example` to `src/data/places/<place-id>.json`.
-2. Replace `place-id` with a permanent lowercase, hyphenated ID such as `men-ten-ten`. Do not change an ID after publishing; it is used in the place URL.
-3. Create `src/assets/places/<place-id>/` and add a cover image.
-4. Update `coverImage.src` relative to the JSON file, for example `../../assets/places/men-ten-ten/cover.jpg`.
-5. Write useful `alt` text that describes each image. Image entries without alt text fail validation.
-6. Keep `status` as `want-to-visit` and `visits` as an empty array until the first visit.
-7. Run `npm run check` and `npm run build` before committing.
-
-The fictional example at `src/data/places/moon-bowl-ramen.json` demonstrates all important fields, repeat visits, multiple reviewers, partial ratings, dishes, notes, and photos. Moon Bowl is deliberately and visibly not a real restaurant.
-
-## Place JSON reference
-
-Required top-level fields:
-
-| Field | Meaning |
-| --- | --- |
-| `id` | Stable lowercase ID using letters, numbers, and hyphens. |
-| `fictional` | `true` only for clearly fictional sample data. |
-| `name` | Public restaurant name. |
-| `description` | Short factual summary shown on cards and detail pages. |
-| `status` | `want-to-visit`, `visited`, or `unavailable`. |
-| `addedAt` | Date added in `YYYY-MM-DD` format. |
-| `location` | Address, city, latitude, longitude, and a `mapUrl`. |
-| `links` | Optional `website`, `menu`, `reservations`, and `phone`. Use `{}` when empty. |
-| `priceRange` | `$`, `$$`, `$$$`, or `$$$$`. |
-| `currency` | Three-letter code, normally `ILS`. |
-| `ramenStyles` | Searchable styles such as `shoyu`, `miso`, or `tantanmen`. |
-| `dietaryOptions` | Searchable phrases such as `vegan option`. |
-| `tags` | Free-form discovery tags such as `late lunch` or `date-friendly`. |
-| `coverImage` | Local `src`, required `alt`, and optional `caption`. |
-| `gallery` | Additional image objects. Use `[]` when empty. |
-| `visits` | Chronological records; the site displays them newest first. |
-
-Optional place fields are `alternateName` and `openingHoursNote`.
-
-## Recording a visit
-
-Append a new object to the place's `visits` array. Never overwrite an earlier visit; repeat visits are independent history.
-
-```json
-{
-  "id": "summer-return-2026",
-  "date": "2026-07-14",
-  "notes": "Optional notes shared by the whole table.",
-  "photos": [],
-  "dishes": [
-    {
-      "name": "Shoyu ramen",
-      "notes": "Optional dish details"
-    }
-  ],
-  "reviews": [
-    {
-      "reviewerId": "eyal",
-      "reviewerName": "Eyal",
-      "notes": "Optional personal notes.",
-      "ratings": {
-        "broth": 9,
-        "noodles": 8,
-        "wouldReturn": 9
-      }
-    }
-  ]
-}
-```
-
-Visit IDs must be unique within the place. Reviewer IDs must be unique within a visit. Reuse a person's reviewer ID on later visits so their history remains recognizable.
-
-Every visit needs at least one reviewer object, but a reviewer may omit any category they did not judge. Missing scores are ignored—they never become zero.
-
-## Rating categories
-
-Every submitted score is an integer from 1 through 10:
-
-- `broth`
-- `noodles`
-- `toppings`
-- `egg`
-- `portion`
-- `value`
-- `service`
-- `atmosphere`
-- `wouldReturn`
-
-The site first averages the categories submitted by each reviewer. Restaurant and visit scores then give every rated reviewer experience equal weight, even when one person skipped categories. Category breakdowns average every submitted value for that category. Displayed scores are rounded to one decimal place; calculations keep full precision.
-
-To change the available categories later, update `ratingKeys`, `ratingsSchema`, and `RATING_CATEGORIES` in `src/domain/place-schema.ts` and `src/domain/ratings.ts`, then adjust their tests.
-
-## Images
-
-Keep images with their place under `src/assets/places/<place-id>/`. JPEG, PNG, WebP, and SVG files are supported by Astro. Use descriptive filenames and avoid very large originals. Every reference has this shape:
-
-```json
-{
-  "src": "../../assets/places/place-id/photo.jpg",
-  "alt": "What is visibly important in the photo",
-  "caption": "Optional visible caption"
-}
-```
-
-Astro verifies references and processes local images during the build. Broken paths stop deployment instead of producing broken image placeholders.
-
-## Editing from a phone or OpenClaw
-
-The safest automated workflow is one small commit per place update:
-
-1. Read the existing place JSON and this README.
-2. Modify only that place's JSON and image folder.
-3. Preserve stable place, visit, and reviewer IDs.
-4. Append new visits; do not rewrite visit history unless correcting a fact.
-5. Run `npm run check` and `npm test` when the environment supports Node.
-6. Commit and push. GitHub Actions performs the full validation before deployment.
-
-If OpenClaw cannot run the build, it can still create a branch or commit. The GitHub workflow will reject invalid JSON with a file and field-level schema error.
-
-## GitHub Pages deployment
-
-The workflow in `.github/workflows/deploy.yml` tests and publishes the site on every push to `master` and can also be run manually.
-
-In the GitHub repository:
-
-1. Open **Settings → Pages**.
-2. Under **Build and deployment**, select **GitHub Actions** as the source.
-3. Push to `master` or run **Test and deploy Ramen Radar** from the Actions tab.
-
-The workflow calculates the repository subpath automatically, so a repository named `ramen-radar` is served correctly from `/ramen-radar/`. A user-site repository named `<owner>.github.io` is served from `/`.
-
-## Project structure
-
-```text
-src/
-  assets/places/       Local restaurant and visit images
-  components/          Reusable Astro UI components
-  data/places/         One validated JSON document per place
-  domain/              Schemas, scoring, sorting, and filter logic
-  pages/               Directory and generated place routes
-  styles/              Responsive visual system
-tests/                  Browser and accessibility checks
-```
+Pushes to `master` run unit, type/content, browser/accessibility, and production build checks before GitHub Pages deployment. Firestore data changes are immediately visible on a new page load and do not require a site rebuild. Repository image changes still require the normal GitHub deployment.
