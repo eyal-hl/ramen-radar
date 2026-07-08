@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact';
 import type { User } from 'firebase/auth';
 import { useEffect, useState } from 'preact/hooks';
 import { parsePlaceDocument, type FirestorePlace } from '../../domain/firestore-model';
+import { parseGoogleMapsUrl } from '../../domain/google-maps';
 import { RATING_CATEGORIES, formatScore, scoreReview } from '../../domain/ratings';
 import { type RatingKey, type Review, type Visit } from '../../domain/place-schema';
 import { observeUser, signInWithGoogle, signOutUser } from '../../firebase/auth';
@@ -11,6 +12,7 @@ import { LoadState } from './PlaceBits';
 const today = () => new Date().toISOString().slice(0, 10);
 const slugify = (value: string) => value.toLocaleLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const csv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
+const placeholderImage = '/images/places/unvisited/placeholder.svg';
 
 function signInErrorMessage(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
@@ -22,11 +24,12 @@ function signInErrorMessage(error: unknown): string {
   return `Google sign-in did not complete.${code ? ` (${code})` : ''}${message ? ` ${message}` : ''}`;
 }
 
-function newPlace(): FirestorePlace {
+function newPlace(input: Partial<FirestorePlace> = {}): FirestorePlace {
+  const name = input.name ?? 'New place';
   return parsePlaceDocument({
     id: 'new-place',
     fictional: false,
-    name: 'New place',
+    name,
     description: 'Add a short factual description.',
     status: 'want-to-visit',
     addedAt: today(),
@@ -36,6 +39,7 @@ function newPlace(): FirestorePlace {
       latitude: 32.07,
       longitude: 34.81,
       mapUrl: 'https://maps.google.com/',
+      ...input.location,
     },
     links: {},
     priceRange: '$$',
@@ -43,10 +47,11 @@ function newPlace(): FirestorePlace {
     ramenStyles: [],
     dietaryOptions: [],
     tags: [],
-    coverImage: { src: '/images/places/unvisited/placeholder.svg', alt: 'Placeholder ramen bowl' },
+    coverImage: { src: placeholderImage, alt: `${name} placeholder image` },
     gallery: [],
     visits: [],
     archived: false,
+    ...input,
   });
 }
 
@@ -125,6 +130,95 @@ function SectionCard({ eyebrow, title, children, action }: { eyebrow: string; ti
   );
 }
 
+function Modal({ title, eyebrow, children, onClose }: { title: string; eyebrow: string; children: ComponentChildren; onClose: () => void }) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.body.classList.add('modal-open');
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.classList.remove('modal-open');
+    };
+  }, [onClose]);
+
+  return (
+    <div class="manage-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section class="manage-modal" role="dialog" aria-modal="true" aria-labelledby="manage-modal-title">
+        <header class="manage-modal__header">
+          <div>
+            <p class="eyebrow">{eyebrow}</p>
+            <h2 id="manage-modal-title">{title}</h2>
+          </div>
+          <button type="button" class="manage-secondary" onClick={onClose}>Close</button>
+        </header>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function StartPlaceModal({ onCreate, onClose }: { onCreate: (place: FirestorePlace) => void; onClose: () => void }) {
+  const [mapsUrl, setMapsUrl] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [status, setStatus] = useState<FirestorePlace['status']>('want-to-visit');
+  const parsed = parseGoogleMapsUrl(mapsUrl);
+  const name = manualName || parsed?.name || 'New place';
+  const city = parsed?.city || 'Givatayim';
+  const address = parsed?.address || parsed?.name || 'Address';
+  const canCreate = mapsUrl.trim().length > 0 && parsed !== null;
+
+  const create = (event: Event) => {
+    event.preventDefault();
+    if (!canCreate) return;
+    onCreate(newPlace({
+      id: slugify(name),
+      name,
+      status,
+      description: `${name} saved for a future ramen visit.`,
+      location: {
+        address,
+        city,
+        latitude: parsed.latitude ?? 32.07,
+        longitude: parsed.longitude ?? 34.81,
+        mapUrl: parsed.mapUrl,
+      },
+      tags: ['saved'],
+      coverImage: { src: placeholderImage, alt: `Illustration marking ${name} as a place waiting to be visited` },
+    }));
+    onClose();
+  };
+
+  return (
+    <Modal eyebrow="New place" title="Paste a Google Maps link" onClose={onClose}>
+      <form class="manage-modal-form" onSubmit={create}>
+        <Field label="Google Maps URL" value={mapsUrl} type="url" required placeholder="https://www.google.com/maps/..." help="We can usually derive name, address, city, latitude, and longitude from the URL. Website, phone, and menu still need manual edits unless they are in the link text." onInput={setMapsUrl} />
+        <Field label="Name override" value={manualName} placeholder={parsed?.name ?? 'Optional'} help="Use this only if the Maps URL does not expose a clean place name." onInput={setManualName} />
+        <SelectField label="Status" value={status} options={[['want-to-visit', 'Want to visit'], ['visited', 'Visited'], ['unavailable', 'Unavailable']]} onChange={setStatus} />
+        {mapsUrl && (
+          <div class="maps-preview" aria-live="polite">
+            {parsed ? (
+              <>
+                <strong>{name}</strong>
+                <span>{address}</span>
+                <span>{city}</span>
+                <span>{parsed.latitude !== undefined && parsed.longitude !== undefined ? `${parsed.latitude}, ${parsed.longitude}` : 'Coordinates not visible in this URL'}</span>
+              </>
+            ) : (
+              <span>That does not look like a full Maps URL yet.</span>
+            )}
+          </div>
+        )}
+        <div class="manage-modal-actions">
+          <button type="button" class="manage-secondary" onClick={onClose}>Cancel</button>
+          <button class="manage-primary" type="submit" disabled={!canCreate}>Start place</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function ReviewEditor({ review, onChange, onRemove }: { review: Review; onChange: (review: Review) => void; onRemove: () => void }) {
   const rating = (key: RatingKey, value: string) => {
     const ratings = { ...review.ratings };
@@ -161,7 +255,28 @@ function ReviewEditor({ review, onChange, onRemove }: { review: Review; onChange
   );
 }
 
+function ReviewModal({ onAdd, onClose }: { onAdd: (review: Review) => void; onClose: () => void }) {
+  const [review, setReview] = useState(newReview());
+  const submit = (event: Event) => {
+    event.preventDefault();
+    onAdd(review);
+    onClose();
+  };
+  return (
+    <Modal eyebrow="New review" title="Add reviewer notes" onClose={onClose}>
+      <form class="manage-modal-form" onSubmit={submit}>
+        <ReviewEditor review={review} onChange={setReview} onRemove={onClose} />
+        <div class="manage-modal-actions">
+          <button type="button" class="manage-secondary" onClick={onClose}>Cancel</button>
+          <button class="manage-primary" type="submit">Add review</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function VisitEditor({ visit, number, onChange, onRemove }: { visit: Visit; number: number; onChange: (visit: Visit) => void; onRemove: () => void }) {
+  const [addingReview, setAddingReview] = useState(false);
   const changeReview = (index: number, review: Review) => onChange({ ...visit, reviews: visit.reviews.map((item, i) => i === index ? review : item) });
   const dishes = (value: string) => csv(value).map((dish) => {
     const [name, notes] = dish.split('|').map((part) => part.trim());
@@ -193,13 +308,14 @@ function VisitEditor({ visit, number, onChange, onRemove }: { visit: Visit; numb
           <p class="eyebrow">Scores</p>
           <h4>Reviews</h4>
         </div>
-        <button type="button" class="manage-secondary" onClick={() => onChange({ ...visit, reviews: [...visit.reviews, newReview()] })}>Add reviewer</button>
+        <button type="button" class="manage-secondary" onClick={() => setAddingReview(true)}>Add reviewer</button>
       </div>
       <div class="review-editor-list">
         {visit.reviews.map((review, index) => (
           <ReviewEditor key={`${review.reviewerId}-${index}`} review={review} onChange={(value) => changeReview(index, value)} onRemove={() => onChange({ ...visit, reviews: visit.reviews.filter((_, i) => i !== index) })} />
         ))}
       </div>
+      {addingReview && <ReviewModal onClose={() => setAddingReview(false)} onAdd={(review) => onChange({ ...visit, reviews: [...visit.reviews, review] })} />}
     </section>
   );
 }
@@ -209,6 +325,22 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
   const [message, setMessage] = useState('');
   const set = <K extends keyof FirestorePlace>(key: K, value: FirestorePlace[K]) => setPlace((current) => ({ ...current, [key]: value }));
   const updateVisit = (index: number, visit: Visit) => set('visits', place.visits.map((item, i) => i === index ? visit : item));
+  const applyMapsUrl = (mapUrl: string) => {
+    const parsed = parseGoogleMapsUrl(mapUrl);
+    setPlace((current) => ({
+      ...current,
+      name: isNew && parsed?.name ? parsed.name : current.name,
+      id: isNew && parsed?.name ? slugify(parsed.name) : current.id,
+      location: {
+        ...current.location,
+        mapUrl,
+        ...(parsed?.address ? { address: parsed.address } : {}),
+        ...(parsed?.city ? { city: parsed.city } : {}),
+        ...(parsed?.latitude !== undefined ? { latitude: parsed.latitude } : {}),
+        ...(parsed?.longitude !== undefined ? { longitude: parsed.longitude } : {}),
+      },
+    }));
+  };
 
   const save = async (event: Event) => {
     event.preventDefault();
@@ -255,7 +387,7 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
           <Field label="City" value={place.location.city} required onInput={(city) => set('location', { ...place.location, city })} />
           <Field label="Latitude" value={place.location.latitude} type="number" step="any" required onInput={(latitude) => set('location', { ...place.location, latitude: Number(latitude) })} />
           <Field label="Longitude" value={place.location.longitude} type="number" step="any" required onInput={(longitude) => set('location', { ...place.location, longitude: Number(longitude) })} />
-          <Field label="Google Maps URL" value={place.location.mapUrl} type="url" required onInput={(mapUrl) => set('location', { ...place.location, mapUrl })} />
+          <Field label="Google Maps URL" value={place.location.mapUrl} type="url" required help="Paste the Maps link first; visible name/address/city/coordinates are filled automatically when possible." onInput={applyMapsUrl} />
           <Field label="Website URL" value={place.links.website ?? ''} type="url" onInput={(website) => set('links', { ...place.links, website: website || undefined })} />
           <Field label="Menu URL" value={place.links.menu ?? ''} type="url" onInput={(menu) => set('links', { ...place.links, menu: menu || undefined })} />
           <Field label="Reservations URL" value={place.links.reservations ?? ''} type="url" onInput={(reservations) => set('links', { ...place.links, reservations: reservations || undefined })} />
@@ -307,6 +439,7 @@ export default function ManageApp() {
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [startingPlace, setStartingPlace] = useState(false);
 
   useEffect(() => observeUser((nextUser) => { setUser(nextUser); setApproved(undefined); }), []);
   useEffect(() => {
@@ -346,7 +479,7 @@ export default function ManageApp() {
       <div class="manage-layout">
         <aside class="manage-sidebar">
           <div class="manage-sidebar-card">
-            <button class="manage-primary" onClick={() => { setNotice(''); setSelected(newPlace()); setIsNew(true); }}>Add place</button>
+            <button class="manage-primary" onClick={() => { setNotice(''); setStartingPlace(true); }}>Add place</button>
           </div>
           <nav aria-label="Places" class="manage-place-list">
             {places.map((place) => (
@@ -367,6 +500,7 @@ export default function ManageApp() {
           )}
         </section>
       </div>
+      {startingPlace && <StartPlaceModal onClose={() => setStartingPlace(false)} onCreate={(place) => { setSelected(place); setIsNew(true); }} />}
     </main>
   );
 }
