@@ -1,11 +1,38 @@
 import { describe, expect, test } from 'vitest';
-import placeFixture from '../data/places/moon-bowl-ramen.json';
 import {
   parsePlaceDocument,
   publicPlaces,
   resolveImageSource,
   toFirestorePlace,
 } from './firestore-model';
+
+const placeFixture = {
+  id: 'test-ramen',
+  fictional: false,
+  name: 'Test Ramen',
+  description: 'A compact Firestore model test fixture.',
+  status: 'want-to-visit',
+  addedAt: '2026-07-06',
+  location: {
+    address: '1 Test Street',
+    city: 'Givatayim',
+    latitude: 32.07,
+    longitude: 34.81,
+    mapUrl: 'https://maps.google.com/',
+  },
+  links: {},
+  priceRange: '$$',
+  currency: 'ILS',
+  ramenStyles: [],
+  dietaryOptions: [],
+  tags: [],
+  coverImage: {
+    src: '/images/places/unvisited/placeholder.svg',
+    alt: 'Placeholder ramen bowl',
+  },
+  gallery: [],
+  visits: [],
+};
 
 describe('Firestore place model', () => {
   test('accepts repository image paths and HTTPS image URLs', () => {

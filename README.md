@@ -10,7 +10,7 @@ An Astro directory and ranking site for ramen around Givatayim and Tel Aviv. Git
 - Security Rules hide archived places and deny all unapproved writes.
 - Repository images live under `public/images/places/`; HTTPS image URLs are also accepted.
 - Public detail URLs use `/place/?id=<place-id>` so newly added places work immediately on GitHub Pages.
-- The existing JSON documents are retained only as the one-time migration seed and deterministic test fixture. Firestore is the production source of truth.
+- Firestore is the production source of truth. Legacy JSON place data and the temporary importer have been removed after migration.
 
 ## Firebase setup
 
@@ -20,7 +20,7 @@ The Spark plan is sufficient; no billing account or Firebase Storage bucket is r
 2. Enable **Authentication → Sign-in method → Google**.
 3. Register a Web App and copy its public configuration.
 4. Add the GitHub Pages hostname to **Authentication → Settings → Authorized domains**.
-5. Copy `.env.example` to `.env` and fill in the four public values.
+5. Copy `.env.example` to `.env` and fill in the public Web App values.
 6. Authenticate the Firebase CLI and deploy the rules:
 
 ```powershell
@@ -35,6 +35,8 @@ For GitHub Pages, create these repository variables under **Settings → Secrets
 - `PUBLIC_FIREBASE_AUTH_DOMAIN`
 - `PUBLIC_FIREBASE_PROJECT_ID`
 - `PUBLIC_FIREBASE_APP_ID`
+- `PUBLIC_FIREBASE_STORAGE_BUCKET`
+- `PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
 
 Firebase’s Web API key is public configuration; authorization is enforced by Authentication and Firestore Security Rules. Never add a service-account key to this repository.
 
@@ -43,8 +45,7 @@ Firebase’s Web API key is public configuration; authorization is enforced by A
 1. Deploy the site and open `/manage/`.
 2. Sign in once with the owner’s Google account. The access-pending page displays its Firebase UID.
 3. In Firebase Console, create `editors/<owner-uid>` with an optional `email` field.
-4. Refresh `/manage/`. When the `places` collection is empty, select **Import existing JSON places**.
-5. Verify the imported directory. Afterward, use `/manage/` for all place and review data.
+4. Refresh `/manage/`. Use the editor for all place and review data.
 
 To approve another editor, have them sign in once and then create `editors/<their-uid>` in Firebase Console. Removing that document revokes future writes.
 
@@ -80,13 +81,6 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-To run locally with the bundled migration fixture instead of Firebase:
-
-```powershell
-$env:PUBLIC_DATA_MODE='fixture'
-npm run dev
-```
-
 Validation commands:
 
 ```powershell
@@ -101,12 +95,10 @@ Firestore Rules tests additionally require Java 21 or newer:
 npm run test:rules
 ```
 
-The browser suite uses fixture mode and does not contact production Firebase:
-
-```powershell
-npm run test:e2e
-```
+The browser suite is currently not part of the GitHub Pages deployment gate because the app now reads live Firebase data.
 
 ## Deployment
 
-Pushes to `master` run unit, type/content, browser/accessibility, and production build checks before GitHub Pages deployment. Firestore data changes are immediately visible on a new page load and do not require a site rebuild. Repository image changes still require the normal GitHub deployment.
+Pushes to `master` run unit, type/content, and production build checks before GitHub Pages deployment. Firestore data changes are immediately visible on a new page load and do not require a site rebuild. Repository image changes still require the normal GitHub deployment.
+
+To make GitHub Pages use Firebase, add the public Firebase values from `.env` as repository variables under **Settings → Secrets and variables → Actions → Variables**, then merge this branch to `master` and push. GitHub Actions injects those values during `npm run build` and publishes the generated `dist` folder through Pages.

@@ -1,35 +1,164 @@
+import type { ComponentChildren } from 'preact';
 import type { User } from 'firebase/auth';
 import { useEffect, useState } from 'preact/hooks';
-import { seedPlaces } from '../../data/seed';
 import { parsePlaceDocument, type FirestorePlace } from '../../domain/firestore-model';
-import { ratingKeys, type RatingKey, type Review, type Visit } from '../../domain/place-schema';
+import { RATING_CATEGORIES, formatScore, scoreReview } from '../../domain/ratings';
+import { type RatingKey, type Review, type Visit } from '../../domain/place-schema';
 import { observeUser, signInWithGoogle, signOutUser } from '../../firebase/auth';
 import { isApprovedEditor, listEditorPlaces, savePlace } from '../../firebase/places';
 import { LoadState } from './PlaceBits';
 
-const fixtureMode = import.meta.env.PUBLIC_DATA_MODE === 'fixture';
 const today = () => new Date().toISOString().slice(0, 10);
 const slugify = (value: string) => value.toLocaleLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const csv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
 
+function signInErrorMessage(error: unknown): string {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+  const message = error instanceof Error ? error.message : '';
+  if (code === 'auth/operation-not-allowed') return 'Google sign-in is not enabled for this Firebase project. Enable Authentication > Sign-in method > Google in Firebase Console.';
+  if (code === 'auth/unauthorized-domain') return 'This domain is not authorized for Firebase Authentication. Add localhost and the GitHub Pages domain under Authentication > Settings > Authorized domains.';
+  if (code === 'auth/popup-blocked') return 'The browser blocked the Google sign-in popup. Allow popups for this site and try again.';
+  if (code === 'auth/popup-closed-by-user') return 'Google sign-in popup closed before sign-in completed.';
+  return `Google sign-in did not complete.${code ? ` (${code})` : ''}${message ? ` ${message}` : ''}`;
+}
+
 function newPlace(): FirestorePlace {
-  return parsePlaceDocument({ id: 'new-place', fictional: false, name: 'New place', description: 'Add a short factual description.', status: 'want-to-visit', addedAt: today(), location: { address: 'Address', city: 'Givatayim', latitude: 32.07, longitude: 34.81, mapUrl: 'https://maps.google.com/' }, links: {}, priceRange: '$$', currency: 'ILS', ramenStyles: [], dietaryOptions: [], tags: [], coverImage: { src: '/images/places/unvisited/placeholder.svg', alt: 'Placeholder ramen bowl' }, gallery: [], visits: [], archived: false });
+  return parsePlaceDocument({
+    id: 'new-place',
+    fictional: false,
+    name: 'New place',
+    description: 'Add a short factual description.',
+    status: 'want-to-visit',
+    addedAt: today(),
+    location: {
+      address: 'Address',
+      city: 'Givatayim',
+      latitude: 32.07,
+      longitude: 34.81,
+      mapUrl: 'https://maps.google.com/',
+    },
+    links: {},
+    priceRange: '$$',
+    currency: 'ILS',
+    ramenStyles: [],
+    dietaryOptions: [],
+    tags: [],
+    coverImage: { src: '/images/places/unvisited/placeholder.svg', alt: 'Placeholder ramen bowl' },
+    gallery: [],
+    visits: [],
+    archived: false,
+  });
 }
 
 const newReview = (): Review => ({ reviewerId: 'reviewer', reviewerName: 'Reviewer', ratings: {} });
 const newVisit = (): Visit => ({ id: `visit-${today()}`, date: today(), photos: [], dishes: [], reviews: [newReview()] });
 
-function TextField({ label, value, onInput, required = false, type = 'text', readOnly = false, step }: { label: string; value: string | number; onInput: (value: string) => void; required?: boolean; type?: string; readOnly?: boolean; step?: string }) {
-  return <label><span>{label}</span><input type={type} value={value} required={required} readOnly={readOnly} step={step} onInput={(event) => onInput(event.currentTarget.value)} /></label>;
+function Field({
+  label,
+  value,
+  onInput,
+  required = false,
+  type = 'text',
+  readOnly = false,
+  step,
+  help,
+  placeholder,
+  multiline = false,
+}: {
+  label: string;
+  value: string | number;
+  onInput: (value: string) => void;
+  required?: boolean;
+  type?: string;
+  readOnly?: boolean;
+  step?: string;
+  help?: string;
+  placeholder?: string;
+  multiline?: boolean;
+}) {
+  return (
+    <label class={multiline ? 'manage-field manage-field--wide' : 'manage-field'}>
+      <span>{label}</span>
+      {multiline ? (
+        <textarea value={value} required={required} readOnly={readOnly} placeholder={placeholder} rows={4} onInput={(event) => onInput(event.currentTarget.value)} />
+      ) : (
+        <input type={type} value={value} required={required} readOnly={readOnly} step={step} placeholder={placeholder} onInput={(event) => onInput(event.currentTarget.value)} />
+      )}
+      {help && <small>{help}</small>}
+    </label>
+  );
+}
+
+function SelectField<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<readonly [T, string]>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label class="manage-field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.currentTarget.value as T)}>
+        {options.map(([optionValue, text]) => <option value={optionValue} key={optionValue}>{text}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function SectionCard({ eyebrow, title, children, action }: { eyebrow: string; title: string; children: ComponentChildren; action?: ComponentChildren }) {
+  return (
+    <section class="manage-card">
+      <header class="manage-card__header">
+        <div>
+          <p class="eyebrow">{eyebrow}</p>
+          <h3>{title}</h3>
+        </div>
+        {action}
+      </header>
+      {children}
+    </section>
+  );
 }
 
 function ReviewEditor({ review, onChange, onRemove }: { review: Review; onChange: (review: Review) => void; onRemove: () => void }) {
   const rating = (key: RatingKey, value: string) => {
     const ratings = { ...review.ratings };
-    if (value === '') delete ratings[key]; else ratings[key] = Number(value);
+    if (value === '') delete ratings[key];
+    else ratings[key] = Number(value);
     onChange({ ...review, ratings });
   };
-  return <section class="manage-nested"><div class="manage-grid"><TextField label="Reviewer ID" value={review.reviewerId} required onInput={(reviewerId) => onChange({ ...review, reviewerId: slugify(reviewerId) })} /><TextField label="Reviewer name" value={review.reviewerName} required onInput={(reviewerName) => onChange({ ...review, reviewerName })} /><TextField label="Review notes" value={review.notes ?? ''} onInput={(notes) => onChange({ ...review, notes: notes || undefined })} /></div><div class="rating-editor">{ratingKeys.map((key) => <label key={key}><span>{key === 'wouldReturn' ? 'Would return' : key}</span><input type="number" min="1" max="10" step="1" value={review.ratings[key] ?? ''} onInput={(event) => rating(key, event.currentTarget.value)} /></label>)}</div><button type="button" class="text-button danger" onClick={onRemove}>Remove reviewer</button></section>;
+  const score = scoreReview(review);
+
+  return (
+    <article class="review-editor">
+      <header>
+        <div>
+          <p class="eyebrow">Reviewer</p>
+          <h5>{review.reviewerName || 'Unnamed reviewer'}</h5>
+        </div>
+        <strong>{formatScore(score)}</strong>
+      </header>
+      <div class="manage-grid">
+        <Field label="Reviewer ID" value={review.reviewerId} required help="Stable lowercase ID, e.g. eyal." onInput={(reviewerId) => onChange({ ...review, reviewerId: slugify(reviewerId) })} />
+        <Field label="Reviewer name" value={review.reviewerName} required onInput={(reviewerName) => onChange({ ...review, reviewerName })} />
+        <Field label="Notes" value={review.notes ?? ''} multiline placeholder="What stood out? Broth, noodles, service…" onInput={(notes) => onChange({ ...review, notes: notes || undefined })} />
+      </div>
+      <div class="rating-editor">
+        {RATING_CATEGORIES.map(({ key, label }) => (
+          <label key={key}>
+            <span>{label}</span>
+            <input type="number" min="1" max="10" step="1" value={review.ratings[key] ?? ''} placeholder="—" onInput={(event) => rating(key, event.currentTarget.value)} />
+          </label>
+        ))}
+      </div>
+      <button type="button" class="manage-link danger" onClick={onRemove}>Remove reviewer</button>
+    </article>
+  );
 }
 
 function VisitEditor({ visit, number, onChange, onRemove }: { visit: Visit; number: number; onChange: (visit: Visit) => void; onRemove: () => void }) {
@@ -42,61 +171,202 @@ function VisitEditor({ visit, number, onChange, onRemove }: { visit: Visit; numb
     const [src, alt, caption] = entry.split('|').map((part) => part.trim());
     return { src, alt, ...(caption ? { caption } : {}) };
   });
-  return <fieldset class="manage-visit"><legend>Visit {number}</legend><div class="manage-grid"><TextField label="Visit ID" value={visit.id} required onInput={(id) => onChange({ ...visit, id: slugify(id) })} /><TextField label="Date" value={visit.date} type="date" required onInput={(date) => onChange({ ...visit, date })} /><TextField label="Visit notes" value={visit.notes ?? ''} onInput={(notes) => onChange({ ...visit, notes: notes || undefined })} /><TextField label="Dishes (name | notes, comma-separated)" value={visit.dishes.map(({ name, notes }) => `${name}${notes ? ` | ${notes}` : ''}`).join(', ')} onInput={(value) => onChange({ ...visit, dishes: dishes(value) })} /><TextField label="Visit photos (URL | alt | caption, comma-separated)" value={visit.photos.map(({ src, alt, caption }) => `${src} | ${alt}${caption ? ` | ${caption}` : ''}`).join(', ')} onInput={(value) => onChange({ ...visit, photos: photos(value) })} /></div><div class="manage-section-heading"><h4>Reviews</h4><button type="button" onClick={() => onChange({ ...visit, reviews: [...visit.reviews, newReview()] })}>Add reviewer</button></div>{visit.reviews.map((review, index) => <ReviewEditor key={`${review.reviewerId}-${index}`} review={review} onChange={(value) => changeReview(index, value)} onRemove={() => onChange({ ...visit, reviews: visit.reviews.filter((_, i) => i !== index) })} />)}<button type="button" class="text-button danger" onClick={onRemove}>Remove visit</button></fieldset>;
+
+  return (
+    <section class="visit-editor">
+      <header class="visit-editor__header">
+        <div>
+          <p class="eyebrow">Visit {number}</p>
+          <h4>{visit.date}</h4>
+        </div>
+        <button type="button" class="manage-link danger" onClick={onRemove}>Remove visit</button>
+      </header>
+      <div class="manage-grid">
+        <Field label="Visit ID" value={visit.id} required help="Must be unique inside this place." onInput={(id) => onChange({ ...visit, id: slugify(id) })} />
+        <Field label="Date" value={visit.date} type="date" required onInput={(date) => onChange({ ...visit, date })} />
+        <Field label="Visit notes" value={visit.notes ?? ''} multiline placeholder="Short summary for this visit…" onInput={(notes) => onChange({ ...visit, notes: notes || undefined })} />
+        <Field label="Dishes" value={visit.dishes.map(({ name, notes }) => `${name}${notes ? ` | ${notes}` : ''}`).join(', ')} help="Format: name | notes, comma-separated." onInput={(value) => onChange({ ...visit, dishes: dishes(value) })} />
+        <Field label="Visit photos" value={visit.photos.map(({ src, alt, caption }) => `${src} | ${alt}${caption ? ` | ${caption}` : ''}`).join(', ')} help="Format: URL/path | alt | caption." onInput={(value) => onChange({ ...visit, photos: photos(value) })} />
+      </div>
+      <div class="manage-card__header compact">
+        <div>
+          <p class="eyebrow">Scores</p>
+          <h4>Reviews</h4>
+        </div>
+        <button type="button" class="manage-secondary" onClick={() => onChange({ ...visit, reviews: [...visit.reviews, newReview()] })}>Add reviewer</button>
+      </div>
+      <div class="review-editor-list">
+        {visit.reviews.map((review, index) => (
+          <ReviewEditor key={`${review.reviewerId}-${index}`} review={review} onChange={(value) => changeReview(index, value)} onRemove={() => onChange({ ...visit, reviews: visit.reviews.filter((_, i) => i !== index) })} />
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isNew: boolean; onSaved: (place: FirestorePlace) => void }) {
   const [place, setPlace] = useState(initial);
   const [message, setMessage] = useState('');
   const set = <K extends keyof FirestorePlace>(key: K, value: FirestorePlace[K]) => setPlace((current) => ({ ...current, [key]: value }));
+  const updateVisit = (index: number, visit: Visit) => set('visits', place.visits.map((item, i) => i === index ? visit : item));
+
   const save = async (event: Event) => {
-    event.preventDefault(); setMessage('Saving…');
+    event.preventDefault();
+    setMessage('Saving…');
     try {
       const validated = parsePlaceDocument(place);
-      const saved = fixtureMode ? { ...validated, updatedAt: new Date().toISOString() } : await savePlace(validated, initial.updatedAt);
-      setPlace(saved); onSaved(saved); setMessage('Saved. Public pages will show this version when refreshed.');
+      const saved = await savePlace(validated, initial.updatedAt);
+      setPlace(saved);
+      onSaved(saved);
+      setMessage('Saved. Public pages will show this version when refreshed.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The place could not be saved.');
     }
   };
-  const updateVisit = (index: number, visit: Visit) => set('visits', place.visits.map((item, i) => i === index ? visit : item));
-  return <form class="manage-editor" onSubmit={save}><div class="manage-editor__header"><div><p class="eyebrow">{isNew ? 'Create place' : 'Edit place'}</p><h2>{place.name}</h2></div><button class="manage-primary" type="submit">Save place</button></div>{message && <p class="manage-message" aria-live="polite">{message}</p>}
-    <fieldset><legend>Place details</legend><div class="manage-grid"><TextField label="ID" value={place.id} required readOnly={!isNew} onInput={(id) => set('id', slugify(id))} /><TextField label="Name" value={place.name} required onInput={(name) => set('name', name)} /><TextField label="Alternate name" value={place.alternateName ?? ''} onInput={(alternateName) => set('alternateName', alternateName || undefined)} /><TextField label="Description" value={place.description} required onInput={(description) => set('description', description)} /><label><span>Status</span><select value={place.status} onChange={(event) => set('status', event.currentTarget.value as FirestorePlace['status'])}><option value="want-to-visit">Want to visit</option><option value="visited">Visited</option><option value="unavailable">Unavailable</option></select></label><TextField label="Added date" value={place.addedAt} type="date" required onInput={(addedAt) => set('addedAt', addedAt)} /><label class="manage-check"><input type="checkbox" checked={place.fictional} onChange={(event) => set('fictional', event.currentTarget.checked)} /> Fictional example</label><label class="manage-check"><input type="checkbox" checked={place.archived} onChange={(event) => set('archived', event.currentTarget.checked)} /> Archived (hidden publicly)</label></div></fieldset>
-    <fieldset><legend>Location and links</legend><div class="manage-grid"><TextField label="Address" value={place.location.address} required onInput={(address) => set('location', { ...place.location, address })} /><TextField label="City" value={place.location.city} required onInput={(city) => set('location', { ...place.location, city })} /><TextField label="Latitude" value={place.location.latitude} type="number" step="any" required onInput={(latitude) => set('location', { ...place.location, latitude: Number(latitude) })} /><TextField label="Longitude" value={place.location.longitude} type="number" step="any" required onInput={(longitude) => set('location', { ...place.location, longitude: Number(longitude) })} /><TextField label="Google Maps URL" value={place.location.mapUrl} type="url" required onInput={(mapUrl) => set('location', { ...place.location, mapUrl })} /><TextField label="Website URL" value={place.links.website ?? ''} type="url" onInput={(website) => set('links', { ...place.links, website: website || undefined })} /><TextField label="Menu URL" value={place.links.menu ?? ''} type="url" onInput={(menu) => set('links', { ...place.links, menu: menu || undefined })} /><TextField label="Reservations URL" value={place.links.reservations ?? ''} type="url" onInput={(reservations) => set('links', { ...place.links, reservations: reservations || undefined })} /><TextField label="Phone" value={place.links.phone ?? ''} onInput={(phone) => set('links', { ...place.links, phone: phone || undefined })} /></div></fieldset>
-    <fieldset><legend>Classification</legend><div class="manage-grid"><label><span>Price range</span><select value={place.priceRange} onChange={(event) => set('priceRange', event.currentTarget.value as FirestorePlace['priceRange'])}>{['$', '$$', '$$$', '$$$$'].map((price) => <option key={price}>{price}</option>)}</select></label><TextField label="Currency" value={place.currency} required onInput={(currency) => set('currency', currency.toUpperCase())} /><TextField label="Ramen styles (comma-separated)" value={place.ramenStyles.join(', ')} onInput={(value) => set('ramenStyles', csv(value))} /><TextField label="Dietary options (comma-separated)" value={place.dietaryOptions.join(', ')} onInput={(value) => set('dietaryOptions', csv(value))} /><TextField label="Tags (comma-separated)" value={place.tags.join(', ')} onInput={(value) => set('tags', csv(value))} /><TextField label="Opening-hours note" value={place.openingHoursNote ?? ''} onInput={(openingHoursNote) => set('openingHoursNote', openingHoursNote || undefined)} /></div></fieldset>
-    <fieldset><legend>Images</legend><div class="manage-grid"><TextField label="Cover image URL/path" value={place.coverImage.src} required onInput={(src) => set('coverImage', { ...place.coverImage, src })} /><TextField label="Cover alt text" value={place.coverImage.alt} required onInput={(alt) => set('coverImage', { ...place.coverImage, alt })} /><TextField label="Cover caption" value={place.coverImage.caption ?? ''} onInput={(caption) => set('coverImage', { ...place.coverImage, caption: caption || undefined })} /><TextField label="Gallery (URL | alt | caption, comma-separated)" value={place.gallery.map(({ src, alt, caption }) => `${src} | ${alt}${caption ? ` | ${caption}` : ''}`).join(', ')} onInput={(value) => set('gallery', csv(value).map((entry) => { const [src, alt, caption] = entry.split('|').map((part) => part.trim()); return { src, alt, ...(caption ? { caption } : {}) }; }))} /></div></fieldset>
-    <div class="manage-section-heading"><h3>Visits</h3><button type="button" onClick={() => set('visits', [...place.visits, newVisit()])}>Add visit</button></div>{place.visits.map((visit, index) => <VisitEditor key={`${visit.id}-${index}`} visit={visit} number={index + 1} onChange={(value) => updateVisit(index, value)} onRemove={() => set('visits', place.visits.filter((_, i) => i !== index))} />)}
-  </form>;
+
+  return (
+    <form class="manage-editor" onSubmit={save}>
+      <div class="manage-editor-hero">
+        <div>
+          <p class="eyebrow">{isNew ? 'Create place' : 'Edit place'}</p>
+          <h2>{place.name}</h2>
+          <p>{place.location.city} · {place.status.replaceAll('-', ' ')} · {place.visits.length} {place.visits.length === 1 ? 'visit' : 'visits'}</p>
+        </div>
+        <button class="manage-primary" type="submit">Save place</button>
+      </div>
+      {message && <p class="manage-message" aria-live="polite">{message}</p>}
+
+      <SectionCard eyebrow="Basics" title="Place details">
+        <div class="manage-grid">
+          <Field label="ID" value={place.id} required readOnly={!isNew} help="Used in URLs and Firestore. Cannot change after creation." onInput={(id) => set('id', slugify(id))} />
+          <Field label="Name" value={place.name} required onInput={(name) => set('name', name)} />
+          <Field label="Alternate name" value={place.alternateName ?? ''} onInput={(alternateName) => set('alternateName', alternateName || undefined)} />
+          <SelectField label="Status" value={place.status} options={[['want-to-visit', 'Want to visit'], ['visited', 'Visited'], ['unavailable', 'Unavailable']]} onChange={(status) => set('status', status)} />
+          <Field label="Added date" value={place.addedAt} type="date" required onInput={(addedAt) => set('addedAt', addedAt)} />
+          <Field label="Description" value={place.description} required multiline placeholder="One or two sentences for the public page." onInput={(description) => set('description', description)} />
+          <label class="manage-check"><input type="checkbox" checked={place.fictional} onChange={(event) => set('fictional', event.currentTarget.checked)} /> Fictional example</label>
+          <label class="manage-check"><input type="checkbox" checked={place.archived} onChange={(event) => set('archived', event.currentTarget.checked)} /> Archived, hidden publicly</label>
+        </div>
+      </SectionCard>
+
+      <SectionCard eyebrow="Where" title="Location and links">
+        <div class="manage-grid">
+          <Field label="Address" value={place.location.address} required onInput={(address) => set('location', { ...place.location, address })} />
+          <Field label="City" value={place.location.city} required onInput={(city) => set('location', { ...place.location, city })} />
+          <Field label="Latitude" value={place.location.latitude} type="number" step="any" required onInput={(latitude) => set('location', { ...place.location, latitude: Number(latitude) })} />
+          <Field label="Longitude" value={place.location.longitude} type="number" step="any" required onInput={(longitude) => set('location', { ...place.location, longitude: Number(longitude) })} />
+          <Field label="Google Maps URL" value={place.location.mapUrl} type="url" required onInput={(mapUrl) => set('location', { ...place.location, mapUrl })} />
+          <Field label="Website URL" value={place.links.website ?? ''} type="url" onInput={(website) => set('links', { ...place.links, website: website || undefined })} />
+          <Field label="Menu URL" value={place.links.menu ?? ''} type="url" onInput={(menu) => set('links', { ...place.links, menu: menu || undefined })} />
+          <Field label="Reservations URL" value={place.links.reservations ?? ''} type="url" onInput={(reservations) => set('links', { ...place.links, reservations: reservations || undefined })} />
+          <Field label="Phone" value={place.links.phone ?? ''} onInput={(phone) => set('links', { ...place.links, phone: phone || undefined })} />
+        </div>
+      </SectionCard>
+
+      <SectionCard eyebrow="Tags" title="Classification">
+        <div class="manage-grid">
+          <SelectField label="Price range" value={place.priceRange} options={[['$', '$'], ['$$', '$$'], ['$$$', '$$$'], ['$$$$', '$$$$']]} onChange={(priceRange) => set('priceRange', priceRange)} />
+          <Field label="Currency" value={place.currency} required onInput={(currency) => set('currency', currency.toUpperCase())} />
+          <Field label="Ramen styles" value={place.ramenStyles.join(', ')} help="Comma-separated, e.g. shoyu, tonkotsu." onInput={(value) => set('ramenStyles', csv(value))} />
+          <Field label="Dietary options" value={place.dietaryOptions.join(', ')} help="Comma-separated." onInput={(value) => set('dietaryOptions', csv(value))} />
+          <Field label="Tags" value={place.tags.join(', ')} help="Comma-separated public filters." onInput={(value) => set('tags', csv(value))} />
+          <Field label="Opening-hours note" value={place.openingHoursNote ?? ''} onInput={(openingHoursNote) => set('openingHoursNote', openingHoursNote || undefined)} />
+        </div>
+      </SectionCard>
+
+      <SectionCard eyebrow="Images" title="Cover and gallery">
+        <div class="manage-grid">
+          <Field label="Cover image URL/path" value={place.coverImage.src} required help="Use /images/places/... or an HTTPS URL." onInput={(src) => set('coverImage', { ...place.coverImage, src })} />
+          <Field label="Cover alt text" value={place.coverImage.alt} required onInput={(alt) => set('coverImage', { ...place.coverImage, alt })} />
+          <Field label="Cover caption" value={place.coverImage.caption ?? ''} onInput={(caption) => set('coverImage', { ...place.coverImage, caption: caption || undefined })} />
+          <Field label="Gallery" value={place.gallery.map(({ src, alt, caption }) => `${src} | ${alt}${caption ? ` | ${caption}` : ''}`).join(', ')} multiline help="Format: URL/path | alt | caption, comma-separated." onInput={(value) => set('gallery', csv(value).map((entry) => { const [src, alt, caption] = entry.split('|').map((part) => part.trim()); return { src, alt, ...(caption ? { caption } : {}) }; }))} />
+        </div>
+      </SectionCard>
+
+      <SectionCard eyebrow="Visits" title="Visit log" action={<button type="button" class="manage-secondary" onClick={() => set('visits', [...place.visits, newVisit()])}>Add visit</button>}>
+        {place.visits.length > 0 ? (
+          <div class="visit-editor-list">
+            {place.visits.map((visit, index) => <VisitEditor key={`${visit.id}-${index}`} visit={visit} number={index + 1} onChange={(value) => updateVisit(index, value)} onRemove={() => set('visits', place.visits.filter((_, i) => i !== index))} />)}
+          </div>
+        ) : (
+          <div class="manage-empty compact">
+            <h4>No visits yet</h4>
+            <p>Add a visit when somebody actually tries the ramen.</p>
+          </div>
+        )}
+      </SectionCard>
+    </form>
+  );
 }
 
 export default function ManageApp() {
-  const [user, setUser] = useState<User | null | undefined>(fixtureMode ? ({ uid: 'fixture-editor', displayName: 'Fixture Editor' } as User) : undefined);
-  const [approved, setApproved] = useState<boolean | undefined>(fixtureMode ? true : undefined);
-  const [places, setPlaces] = useState<FirestorePlace[]>(fixtureMode ? seedPlaces : []);
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [approved, setApproved] = useState<boolean | undefined>(undefined);
+  const [places, setPlaces] = useState<FirestorePlace[]>([]);
   const [selected, setSelected] = useState<FirestorePlace>();
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  useEffect(() => fixtureMode ? undefined : observeUser((nextUser) => { setUser(nextUser); setApproved(undefined); }), []);
+  useEffect(() => observeUser((nextUser) => { setUser(nextUser); setApproved(undefined); }), []);
   useEffect(() => {
-    if (!user) { setApproved(false); return; }
-    if (fixtureMode) return;
-    void isApprovedEditor(user.uid).then((allowed) => { setApproved(allowed); if (allowed) void listEditorPlaces().then(setPlaces); }).catch(() => setError('Editor access could not be checked.'));
+    if (!user) {
+      setApproved(false);
+      return;
+    }
+    void isApprovedEditor(user.uid)
+      .then((allowed) => { setApproved(allowed); if (allowed) void listEditorPlaces().then(setPlaces); })
+      .catch(() => setError('Editor access could not be checked.'));
   }, [user]);
 
   if (error) return <LoadState><h1>Manage Ramen Radar</h1><p>{error}</p></LoadState>;
   if (user === undefined || (user && approved === undefined)) return <LoadState><p>Checking editor access…</p></LoadState>;
-  if (!user) return <LoadState><h1>Manage Ramen Radar</h1><p>Sign in with an approved Google account to add places and reviews.</p><button class="manage-primary" onClick={() => void signInWithGoogle().catch(() => setError('Google sign-in did not complete.'))}>Sign in with Google</button></LoadState>;
+  if (!user) return <LoadState><h1>Manage Ramen Radar</h1><p>Sign in with an approved Google account to add places and reviews.</p><button class="manage-primary" onClick={() => void signInWithGoogle().catch((reason) => setError(signInErrorMessage(reason)))}>Sign in with Google</button></LoadState>;
   if (!approved) return <LoadState><h1>Access pending</h1><p>You signed in successfully, but this account is not in the editor allowlist. Ask the project owner to add UID <code>{user.uid}</code> to the <code>editors</code> collection.</p><button onClick={() => void signOutUser()}>Sign out</button></LoadState>;
 
   const choose = (place: FirestorePlace) => { setNotice(''); setSelected(place); setIsNew(false); };
-  const saved = (place: FirestorePlace) => { setPlaces((current) => [...current.filter(({ id }) => id !== place.id), place].sort((a, b) => a.name.localeCompare(b.name))); setSelected(place); setIsNew(false); setNotice('Saved. Public pages will show this version when refreshed.'); };
-  const importSeed = async () => {
-    try {
-      for (const place of seedPlaces) await savePlace(place, undefined);
-      setPlaces(await listEditorPlaces());
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Import failed.'); }
+  const saved = (place: FirestorePlace) => {
+    setPlaces((current) => [...current.filter(({ id }) => id !== place.id), place].sort((a, b) => a.name.localeCompare(b.name)));
+    setSelected(place);
+    setIsNew(false);
+    setNotice('Saved. Public pages will show this version when refreshed.');
   };
-  return <main class="manage-shell shell"><header class="manage-top"><div><p class="eyebrow">Private editor</p><h1>Manage Ramen Radar</h1><p>Signed in as {user.email ?? user.displayName ?? user.uid}</p></div>{!fixtureMode && <button onClick={() => void signOutUser()}>Sign out</button>}</header>{notice && <p class="manage-message" aria-live="polite">{notice}</p>}<div class="manage-layout"><aside class="manage-sidebar"><button class="manage-primary" onClick={() => { setNotice(''); setSelected(newPlace()); setIsNew(true); }}>Add place</button>{places.length === 0 && <button onClick={() => void importSeed()}>Import existing JSON places</button>}<nav aria-label="Places">{places.map((place) => <button class={selected?.id === place.id ? 'active' : ''} onClick={() => choose(place)} key={place.id}><span>{place.name}</span>{place.archived && <small>Archived</small>}</button>)}</nav></aside><section>{selected ? <PlaceEditor key={selected.id} initial={selected} isNew={isNew} onSaved={saved} /> : <div class="manage-empty"><h2>Choose a place</h2><p>Select an existing place or add a new one.</p></div>}</section></div></main>;
+  return (
+    <main class="manage-shell shell">
+      <header class="manage-top">
+        <div>
+          <p class="eyebrow">Private editor</p>
+          <h1>Manage Ramen Radar</h1>
+          <p>Signed in as {user.email ?? user.displayName ?? user.uid}</p>
+        </div>
+        <button class="manage-secondary" onClick={() => void signOutUser()}>Sign out</button>
+      </header>
+      {notice && <p class="manage-message" aria-live="polite">{notice}</p>}
+
+      <div class="manage-layout">
+        <aside class="manage-sidebar">
+          <div class="manage-sidebar-card">
+            <button class="manage-primary" onClick={() => { setNotice(''); setSelected(newPlace()); setIsNew(true); }}>Add place</button>
+          </div>
+          <nav aria-label="Places" class="manage-place-list">
+            {places.map((place) => (
+              <button class={selected?.id === place.id ? 'active' : ''} onClick={() => choose(place)} key={place.id}>
+                <span>{place.name}</span>
+                <small>{place.archived ? 'Archived' : `${place.visits.length} visits`}</small>
+              </button>
+            ))}
+          </nav>
+        </aside>
+        <section>
+          {selected ? <PlaceEditor key={selected.id} initial={selected} isNew={isNew} onSaved={saved} /> : (
+            <div class="manage-empty">
+              <p class="eyebrow">Ready</p>
+              <h2>Choose a place</h2>
+              <p>Select an existing place or add a new one. Edits are validated before they touch Firestore.</p>
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
+  );
 }
