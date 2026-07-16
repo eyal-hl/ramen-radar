@@ -84,9 +84,9 @@ describe('ReviewComposer', () => {
 
     const scoreNine = container.querySelector<HTMLInputElement>('input[type="radio"][value="9"]');
     expect(scoreNine).not.toBeNull();
-    await act(() => scoreNine?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
+    await act(() => { scoreNine?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
     const reusedScoreNine = container.querySelector<HTMLInputElement>('input[type="radio"][value="9"]');
-    await act(() => reusedScoreNine?.dispatchEvent(new Event('change', { bubbles: true })));
+    await act(() => { reusedScoreNine?.dispatchEvent(new Event('change', { bubbles: true })); });
 
     expect(container.querySelector('button[aria-label="Broth, rated 9"]')).not.toBeNull();
     expect(container.querySelector('button[aria-label="Noodles, not rated"]')).not.toBeNull();
@@ -111,15 +111,17 @@ describe('ReviewComposer', () => {
     });
 
     const scoreNine = container.querySelector<HTMLInputElement>('input[type="radio"][value="9"]');
-    await act(() => scoreNine?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
+    await act(() => { scoreNine?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
     const saveButton = [...container.querySelectorAll('button')].find(({ textContent }) => textContent === 'Save review');
     await act(() => saveButton?.click());
 
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('form')?.getAttribute('aria-busy')).toBe('true');
-    const draftControls = [...container.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>('form input, form select, form textarea, form button')];
-    expect(draftControls.length).toBeGreaterThan(0);
-    expect(draftControls.every(({ disabled }) => disabled)).toBe(true);
+    expect(container.querySelector('.review-composer-lock')?.getAttribute('aria-busy')).toBe('true');
+    const draftLock = container.querySelector<HTMLFieldSetElement>('.review-composer-lock');
+    expect(draftLock?.disabled).toBe(true);
+    const actionControls = [...container.querySelectorAll<HTMLButtonElement>('form > .review-composer-actions button')];
+    expect(actionControls.length).toBeGreaterThan(0);
+    expect(actionControls.every(({ disabled }) => disabled)).toBe(true);
     const closeButton = [...container.querySelectorAll('button')].find(({ textContent }) => textContent === 'Close');
     expect(closeButton?.disabled).toBe(true);
 

@@ -174,13 +174,22 @@ function Modal({
   useEffect(() => {
     const dialog = dialogRef.current;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    const focusableSelector = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])';
     const focusDialog = () => {
       const firstControl = dialog?.querySelector<HTMLElement>('[data-modal-initial-focus]')
         ?? dialog?.querySelector<HTMLElement>(focusableSelector);
       (firstControl ?? dialog)?.focus();
     };
     const frame = requestAnimationFrame(focusDialog);
+    const viewport = window.visualViewport;
+    const syncVisualViewport = () => {
+      if (!dialog || !viewport) return;
+      dialog.style.setProperty('--modal-viewport-height', `${viewport.height}px`);
+      dialog.style.setProperty('--modal-viewport-top', `${viewport.offsetTop}px`);
+    };
+    syncVisualViewport();
+    viewport?.addEventListener('resize', syncVisualViewport);
+    viewport?.addEventListener('scroll', syncVisualViewport);
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !preventCloseRef.current) {
@@ -199,10 +208,14 @@ function Modal({
       }
       const first = controls[0];
       const last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      const activeControl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (!activeControl || !dialog.contains(activeControl) || !controls.includes(activeControl)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeControl === first) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeControl === last) {
         event.preventDefault();
         first.focus();
       }
@@ -212,6 +225,8 @@ function Modal({
     document.body.classList.add('modal-open');
     return () => {
       cancelAnimationFrame(frame);
+      viewport?.removeEventListener('resize', syncVisualViewport);
+      viewport?.removeEventListener('scroll', syncVisualViewport);
       document.removeEventListener('keydown', onKeyDown);
       document.body.classList.remove('modal-open');
       previousFocus?.focus();
@@ -271,7 +286,7 @@ function StartPlaceModal({ onCreate, onClose }: { onCreate: (place: FirestorePla
 
   return (
     <Modal eyebrow="New place" title="Paste a Google Maps link" onClose={onClose}>
-      <form class="manage-modal-form" onSubmit={create}>
+      <form class="manage-modal-form" aria-label="New place details" tabIndex={0} onSubmit={create}>
         <Field label="Google Maps URL" value={mapsUrl} type="url" required placeholder="https://www.google.com/maps/..." help="We can usually derive name, address, city, latitude, and longitude from the URL. Website, phone, and menu still need manual edits unless they are in the link text." onInput={setMapsUrl} />
         <Field label="Name override" value={manualName} placeholder={parsed?.name ?? 'Optional'} help="Use this only if the Maps URL does not expose a clean place name." onInput={setManualName} />
         <SelectField label="Status" value={status} options={[['want-to-visit', 'Want to visit'], ['visited', 'Visited'], ['unavailable', 'Unavailable']]} onChange={setStatus} />
@@ -370,6 +385,7 @@ export function ReviewComposer({
   const scoreGroupId = useId();
   const activeLegendRef = useRef<HTMLLegendElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const saveStatusRef = useRef<HTMLParagraphElement>(null);
   const ratedCount = RATING_CATEGORIES.filter(({ key }) => review.ratings[key] !== undefined).length;
   const score = scoreReview(review);
   const activeLabel = RATING_CATEGORIES.find(({ key }) => key === activeRating)?.label ?? activeRating;
@@ -425,6 +441,7 @@ export function ReviewComposer({
   };
   const submit = async (event: Event) => {
     event.preventDefault();
+    if (saving) return;
     const identity = resolveIdentity();
     if (!identity) {
       showError('Choose a reviewer or enter a new reviewer name.');
@@ -440,6 +457,7 @@ export function ReviewComposer({
       return;
     }
 
+    saveStatusRef.current?.focus();
     setSaving(true);
     setError('');
     try {
@@ -464,7 +482,8 @@ export function ReviewComposer({
       preventClose={saving}
       panelClass="review-composer-modal"
     >
-      <form class="manage-modal-form review-composer-form" aria-busy={saving} onSubmit={submit}>
+      <form class="manage-modal-form review-composer-form" aria-label="Review details" tabIndex={0} onSubmit={submit}>
+        <fieldset class="review-composer-lock" disabled={saving} aria-busy={saving}>
         <label class="manage-field review-composer-reviewer">
           <span>Who is reviewing?</span>
           {reviewerChoices.length > 0 ? (
@@ -500,9 +519,9 @@ export function ReviewComposer({
             <strong>{formatScore(score)}</strong>
           </header>
 
-          <fieldset class="review-score-picker">
+          <fieldset class="review-score-picker" aria-describedby={`${scoreGroupId}-score-hint`}>
             <legend ref={activeLegendRef} tabIndex={-1}>{activeLabel} · choose 1–10</legend>
-            <p class="review-score-hint">Tap a score to move to the next unrated category. Keyboard selection stays here.</p>
+            <p class="review-score-hint" id={`${scoreGroupId}-score-hint`}>Tap a score to move to the next unrated category. Keyboard selection stays here.</p>
             <div class="review-score-options">
               {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => {
                 const id = `${scoreGroupId}-${activeRating}-${value}`;
@@ -553,11 +572,12 @@ export function ReviewComposer({
         </label>
 
         {hasUnsavedPlaceChanges && <p class="review-composer-warning">Saving this review also saves your other place edits.</p>}
+        </fieldset>
         {error && <p ref={errorRef} class="review-composer-error" role="alert" tabIndex={-1}>{error}</p>}
 
         <div class="review-composer-actions">
-          <p class="review-composer-status" aria-live="polite" aria-atomic="true">
-            {ratedCount} of {RATING_CATEGORIES.length} rated{score === null ? '' : ` · Average ${formatScore(score)}`}
+          <p ref={saveStatusRef} class="review-composer-status" aria-live="polite" aria-atomic="true" tabIndex={-1}>
+            {saving ? 'Saving review…' : `${ratedCount} of ${RATING_CATEGORIES.length} rated${score === null ? '' : ` · Average ${formatScore(score)}`}`}
           </p>
           <button class="manage-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save review'}</button>
         </div>
@@ -622,11 +642,15 @@ function VisitEditor({
   );
 }
 
-function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isNew: boolean; onSaved: (place: FirestorePlace) => void }) {
+function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isNew: boolean; onSaved: (place: FirestorePlace, announce?: boolean) => void }) {
   const [place, setPlace] = useState(initial);
   const [message, setMessage] = useState('');
   const [reviewVisitId, setReviewVisitId] = useState<string>();
   const [pendingNewVisitId, setPendingNewVisitId] = useState<string>();
+  const [savingPlace, setSavingPlace] = useState(false);
+  const savingPlaceRef = useRef(false);
+  const placeMessageRef = useRef<HTMLParagraphElement>(null);
+  const reviewSavedRef = useRef(false);
   const set = <K extends keyof FirestorePlace>(key: K, value: FirestorePlace[K]) => setPlace((current) => ({ ...current, [key]: value }));
   const updateVisit = (index: number, visit: Visit) => set('visits', place.visits.map((item, i) => i === index ? visit : item));
   const applyMapsUrl = (mapUrl: string) => {
@@ -646,16 +670,25 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
     }));
   };
 
-  const persist = async (candidate: FirestorePlace, expectedUpdatedAt = place.updatedAt) => {
-    const validated = parsePlaceDocument(candidate);
-    const saved = await savePlace(validated, expectedUpdatedAt);
-    setPlace(saved);
-    onSaved(saved);
-    return saved;
+  const persist = async (candidate: FirestorePlace, expectedUpdatedAt = place.updatedAt, announce = true) => {
+    if (savingPlaceRef.current) throw new Error('A save is already in progress.');
+    savingPlaceRef.current = true;
+    setSavingPlace(true);
+    try {
+      const validated = parsePlaceDocument(candidate);
+      const saved = await savePlace(validated, expectedUpdatedAt);
+      setPlace(saved);
+      onSaved(saved, announce);
+      return saved;
+    } finally {
+      savingPlaceRef.current = false;
+      setSavingPlace(false);
+    }
   };
   const save = async (event: Event) => {
     event.preventDefault();
     setMessage('Saving…');
+    requestAnimationFrame(() => placeMessageRef.current?.focus());
     try {
       await persist(place);
       setMessage('Saved. Public pages will show this version when refreshed.');
@@ -667,6 +700,7 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
     const visit = newVisit(place.visits);
     setPlace((current) => ({ ...current, visits: [...current.visits, visit] }));
     setPendingNewVisitId(visit.id);
+    reviewSavedRef.current = false;
     setReviewVisitId(visit.id);
   };
   const closeReviewComposer = () => {
@@ -678,13 +712,22 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
       setPendingNewVisitId(undefined);
     }
     setReviewVisitId(undefined);
+    if (reviewSavedRef.current) {
+      setMessage('Review saved. Public pages will show it when refreshed.');
+      reviewSavedRef.current = false;
+    }
   };
   const saveReview = async (review: Review) => {
     if (!reviewVisitId) throw new Error('Visit no longer exists.');
-    const saved = await saveReviewToVisit(place, reviewVisitId, review, persist);
+    const saved = await saveReviewToVisit(
+      place,
+      reviewVisitId,
+      review,
+      (candidate, expectedUpdatedAt) => persist(candidate, expectedUpdatedAt, false),
+    );
     setPlace(saved);
     setPendingNewVisitId(undefined);
-    setMessage('Review saved. Public pages will show it when refreshed.');
+    reviewSavedRef.current = true;
   };
   const selectedReviewVisit = place.visits.find(({ id }) => id === reviewVisitId);
   const withoutVersion = ({ updatedAt: _updatedAt, ...value }: FirestorePlace) => value;
@@ -693,15 +736,16 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
   return (
     <>
     <form class="manage-editor" onSubmit={save}>
+      {message && <p ref={placeMessageRef} class="manage-message" aria-live="polite" tabIndex={-1}>{message}</p>}
+      <fieldset class="manage-editor-fields" disabled={savingPlace} aria-busy={savingPlace}>
       <div class="manage-editor-hero">
         <div>
           <p class="eyebrow">{isNew ? 'Create place' : 'Edit place'}</p>
           <h2>{place.name}</h2>
           <p>{place.location.city} · {place.status.replaceAll('-', ' ')} · {place.visits.length} {place.visits.length === 1 ? 'visit' : 'visits'}</p>
         </div>
-        <button class="manage-primary" type="submit">Save place</button>
+        <button class="manage-primary" type="submit">{savingPlace ? 'Saving…' : 'Save place'}</button>
       </div>
-      {message && <p class="manage-message" aria-live="polite">{message}</p>}
 
       <SectionCard eyebrow="Basics" title="Place details">
         <div class="manage-grid">
@@ -753,7 +797,7 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
       <SectionCard eyebrow="Visits" title="Visit log" action={<button type="button" class="manage-secondary" onClick={addVisit}>Add visit</button>}>
         {place.visits.length > 0 ? (
           <div class="visit-editor-list">
-            {place.visits.map((visit, index) => <VisitEditor key={`${visit.id}-${index}`} visit={visit} number={index + 1} onChange={(value) => updateVisit(index, value)} onRemove={() => set('visits', place.visits.filter((_, i) => i !== index))} onRequestAddReview={() => setReviewVisitId(visit.id)} />)}
+            {place.visits.map((visit, index) => <VisitEditor key={`${visit.id}-${index}`} visit={visit} number={index + 1} onChange={(value) => updateVisit(index, value)} onRemove={() => set('visits', place.visits.filter((_, i) => i !== index))} onRequestAddReview={() => { reviewSavedRef.current = false; setReviewVisitId(visit.id); }} />)}
           </div>
         ) : (
           <div class="manage-empty compact">
@@ -762,6 +806,7 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
           </div>
         )}
       </SectionCard>
+      </fieldset>
     </form>
     {selectedReviewVisit && (
       <ReviewComposer
@@ -804,11 +849,11 @@ export default function ManageApp() {
   if (!approved) return <LoadState><h1>Access pending</h1><p>You signed in successfully, but this account is not in the editor allowlist. Ask the project owner to add UID <code>{user.uid}</code> to the <code>editors</code> collection.</p><button onClick={() => void signOutUser()}>Sign out</button></LoadState>;
 
   const choose = (place: FirestorePlace) => { setNotice(''); setSelected(place); setIsNew(false); };
-  const saved = (place: FirestorePlace) => {
+  const saved = (place: FirestorePlace, announce = true) => {
     setPlaces((current) => [...current.filter(({ id }) => id !== place.id), place].sort((a, b) => a.name.localeCompare(b.name)));
     setSelected(place);
     setIsNew(false);
-    setNotice('Saved. Public pages will show this version when refreshed.');
+    if (announce) setNotice('Saved. Public pages will show this version when refreshed.');
   };
   return (
     <main class="manage-shell shell">

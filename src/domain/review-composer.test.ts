@@ -130,8 +130,10 @@ describe('adding a review to a place', () => {
 
   it('persists the appended review once against the current place version', async () => {
     const original = place([visit('lunch', [review('eyal', 'Eyal')])]);
-    const persisted = { ...original, updatedAt: '2026-07-16T13:00:00.000Z' };
-    const persist = vi.fn(async () => persisted);
+    const persist = vi.fn(async (candidate: FirestorePlace, _expectedUpdatedAt: string | undefined) => ({
+      ...candidate,
+      updatedAt: '2026-07-16T13:00:00.000Z',
+    }));
 
     const result = await saveReviewToVisit(
       original,
@@ -152,6 +154,23 @@ describe('adding a review to a place', () => {
       }),
       original.updatedAt,
     );
-    expect(result).toBe(persisted);
+    expect(result.updatedAt).toBe('2026-07-16T13:00:00.000Z');
+    expect(result.visits[0].reviews.map(({ reviewerId }) => reviewerId)).toEqual(['eyal', 'maya']);
+  });
+
+  it('uses the returned version token for the next review save', async () => {
+    const original = place([visit('lunch', [review('eyal', 'Eyal')])]);
+    let version = 12;
+    const persist = vi.fn(async (candidate: FirestorePlace, _expectedUpdatedAt: string | undefined) => ({
+      ...candidate,
+      updatedAt: `2026-07-16T${version++}:00:00.000Z`,
+    }));
+
+    const first = await saveReviewToVisit(original, 'lunch', review('maya', 'Maya'), persist);
+    const second = await saveReviewToVisit(first, 'lunch', review('dan', 'Dan'), persist);
+
+    expect(persist).toHaveBeenCalledTimes(2);
+    expect(persist.mock.calls[1][1]).toBe(first.updatedAt);
+    expect(second.visits[0].reviews.map(({ reviewerId }) => reviewerId)).toEqual(['eyal', 'maya', 'dan']);
   });
 });
