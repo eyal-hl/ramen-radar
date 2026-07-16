@@ -91,4 +91,38 @@ describe('ReviewComposer', () => {
     expect(container.querySelector('button[aria-label="Broth, rated 9"]')).not.toBeNull();
     expect(container.querySelector('button[aria-label="Noodles, not rated"]')).not.toBeNull();
   });
+
+  it('freezes the review draft while persistence is in flight', async () => {
+    const selectedVisit = visit('dinner', [review('eyal', 'Eyal')]);
+    const container = document.createElement('div');
+    document.body.append(container);
+    let finishSave: (() => void) | undefined;
+    const onSave = vi.fn(() => new Promise<void>((resolve) => { finishSave = resolve; }));
+
+    await act(() => {
+      renderDom(h(ReviewComposer, {
+        placeName: 'Men Tenten',
+        visit: selectedVisit,
+        visits: [visit('lunch', [review('maya', 'Maya')]), selectedVisit],
+        hasUnsavedPlaceChanges: false,
+        onClose: vi.fn(),
+        onSave,
+      }), container);
+    });
+
+    const scoreNine = container.querySelector<HTMLInputElement>('input[type="radio"][value="9"]');
+    await act(() => scoreNine?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
+    const saveButton = [...container.querySelectorAll('button')].find(({ textContent }) => textContent === 'Save review');
+    await act(() => saveButton?.click());
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('form')?.getAttribute('aria-busy')).toBe('true');
+    const draftControls = [...container.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>('form input, form select, form textarea, form button')];
+    expect(draftControls.length).toBeGreaterThan(0);
+    expect(draftControls.every(({ disabled }) => disabled)).toBe(true);
+    const closeButton = [...container.querySelectorAll('button')].find(({ textContent }) => textContent === 'Close');
+    expect(closeButton?.disabled).toBe(true);
+
+    await act(() => finishSave?.());
+  });
 });
