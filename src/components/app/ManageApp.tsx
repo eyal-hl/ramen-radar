@@ -515,8 +515,7 @@ export function ReviewComposer({
                       type="radio"
                       value={value}
                       checked={review.ratings[activeRating] === value}
-                      onChange={() => rate(value, false)}
-                      onClick={(event) => { if (event.detail > 0) rate(value, true); }}
+                      onClick={(event) => rate(value, event.detail > 0)}
                     />
                     <label class="review-score-option" for={id}>{value}</label>
                   </span>
