@@ -14,4 +14,8 @@ describe('GitHub Pages base paths', () => {
     expect(placeDetailUrl('/ramen-radar', 'moon-bowl-ramen'))
       .toBe('/ramen-radar/place/?id=moon-bowl-ramen');
   });
+
+  it('builds and encodes a place detail URL at the site root', () => {
+    expect(placeDetailUrl('/', 'bowl & broth')).toBe('/place/?id=bowl%20%26%20broth');
+  });
 });

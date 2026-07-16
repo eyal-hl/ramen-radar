@@ -3,6 +3,7 @@ import { matchesDirectoryFilters, type DirectoryFilters } from '../../domain/dir
 import { toMapPlace } from '../../domain/map';
 import { resolveImageSource, type FirestorePlace } from '../../domain/firestore-model';
 import { sortPlaceCards, toPlaceCard, type SortMode } from '../../domain/places';
+import { placeDetailUrl } from '../../domain/urls';
 import { loadPublicPlaces } from '../../data/source';
 import type { MapController } from '../../scripts/map-view';
 import { LoadState, ScoreBadge, StatusChip } from './PlaceBits';
@@ -38,7 +39,7 @@ function DirectoryMap({ places, visibleIds }: { places: ReturnType<typeof toMapP
 }
 
 function PlaceCard({ place }: { place: ReturnType<typeof toPlaceCard> }) {
-  const detailUrl = `${base}place/?id=${encodeURIComponent(place.id)}`;
+  const detailUrl = placeDetailUrl(base, place.id);
   const latest = place.latestVisit
     ? new Intl.DateTimeFormat('en-IL', { dateStyle: 'medium' }).format(new Date(`${place.latestVisit}T12:00:00`))
     : null;

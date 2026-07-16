@@ -3,3 +3,7 @@ export function joinBase(base: string, path: string): string {
   const normalizedPath = path.replace(/^\/+/, '');
   return `${normalizedBase}/${normalizedPath}`;
 }
+
+export function placeDetailUrl(base: string, placeId: string): string {
+  return `${joinBase(base, 'place/')}?id=${encodeURIComponent(placeId)}`;
+}
