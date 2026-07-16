@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FirestorePlace } from './firestore-model';
 import type { Review, Visit } from './place-schema';
 import {
@@ -7,6 +7,7 @@ import {
   createReview,
   nextUnratedRatingKey,
   reviewerIdFromName,
+  saveReviewToVisit,
   setReviewRating,
 } from './review-composer';
 
@@ -125,5 +126,32 @@ describe('adding a review to a place', () => {
       .toThrow('Visit no longer exists');
     expect(() => appendReviewToVisit(original, 'lunch', review('eyal', 'Eyal')))
       .toThrow('already reviewed');
+  });
+
+  it('persists the appended review once against the current place version', async () => {
+    const original = place([visit('lunch', [review('eyal', 'Eyal')])]);
+    const persisted = { ...original, updatedAt: '2026-07-16T13:00:00.000Z' };
+    const persist = vi.fn(async () => persisted);
+
+    const result = await saveReviewToVisit(
+      original,
+      'lunch',
+      review('maya', 'Maya', { broth: 9 }),
+      persist,
+    );
+
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(persist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visits: [expect.objectContaining({
+          reviews: [
+            expect.objectContaining({ reviewerId: 'eyal' }),
+            expect.objectContaining({ reviewerId: 'maya', ratings: { broth: 9 } }),
+          ],
+        })],
+      }),
+      original.updatedAt,
+    );
+    expect(result).toBe(persisted);
   });
 });
