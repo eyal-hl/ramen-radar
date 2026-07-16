@@ -1,8 +1,18 @@
 import type { ComponentChildren } from 'preact';
 import type { User } from 'firebase/auth';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import { parsePlaceDocument, type FirestorePlace } from '../../domain/firestore-model';
 import { parseGoogleMapsUrl } from '../../domain/google-maps';
+import {
+  availableReviewers,
+  createReview,
+  knownReviewers,
+  nextUnratedRatingKey,
+  reviewerIdFromName,
+  saveReviewToVisit,
+  setReviewRating,
+  type ReviewerIdentity,
+} from '../../domain/review-composer';
 import { RATING_CATEGORIES, formatScore, scoreReview } from '../../domain/ratings';
 import { type RatingKey, type Review, type Visit } from '../../domain/place-schema';
 import { observeUser, signInWithGoogle, signOutUser } from '../../firebase/auth';
@@ -55,8 +65,17 @@ function newPlace(input: Partial<FirestorePlace> = {}): FirestorePlace {
   });
 }
 
-const newReview = (): Review => ({ reviewerId: 'reviewer', reviewerName: 'Reviewer', ratings: {} });
-const newVisit = (): Visit => ({ id: `visit-${today()}`, date: today(), photos: [], dishes: [], reviews: [newReview()] });
+const newVisit = (visits: Visit[]): Visit => {
+  const baseId = `visit-${today()}`;
+  const usedIds = new Set(visits.map(({ id }) => id));
+  let id = baseId;
+  let suffix = 2;
+  while (usedIds.has(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+  return { id, date: today(), photos: [], dishes: [], reviews: [] };
+};
 
 function Field({
   label,
@@ -130,28 +149,88 @@ function SectionCard({ eyebrow, title, children, action }: { eyebrow: string; ti
   );
 }
 
-function Modal({ title, eyebrow, children, onClose }: { title: string; eyebrow: string; children: ComponentChildren; onClose: () => void }) {
+function Modal({
+  title,
+  eyebrow,
+  children,
+  onClose,
+  preventClose = false,
+  panelClass = '',
+}: {
+  title: string;
+  eyebrow: string;
+  children: ComponentChildren;
+  onClose: () => void;
+  preventClose?: boolean;
+  panelClass?: string;
+}) {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef(onClose);
+  const preventCloseRef = useRef(preventClose);
+  closeRef.current = onClose;
+  preventCloseRef.current = preventClose;
+
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+    const dialog = dialogRef.current;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    const focusDialog = () => {
+      const firstControl = dialog?.querySelector<HTMLElement>('[data-modal-initial-focus]')
+        ?? dialog?.querySelector<HTMLElement>(focusableSelector);
+      (firstControl ?? dialog)?.focus();
     };
+    const frame = requestAnimationFrame(focusDialog);
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !preventCloseRef.current) {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+
+      const controls = [...dialog.querySelectorAll<HTMLElement>(focusableSelector)]
+        .filter((control) => control.offsetParent !== null);
+      if (controls.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
     document.addEventListener('keydown', onKeyDown);
     document.body.classList.add('modal-open');
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener('keydown', onKeyDown);
       document.body.classList.remove('modal-open');
+      previousFocus?.focus();
     };
-  }, [onClose]);
+  }, []);
+
+  const requestClose = () => {
+    if (!preventClose) onClose();
+  };
 
   return (
-    <div class="manage-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section class="manage-modal" role="dialog" aria-modal="true" aria-labelledby="manage-modal-title">
+    <div class="manage-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
+      <section ref={dialogRef} tabIndex={-1} class={`manage-modal ${panelClass}`.trim()} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header class="manage-modal__header">
           <div>
             <p class="eyebrow">{eyebrow}</p>
-            <h2 id="manage-modal-title">{title}</h2>
+            <h2 id={titleId}>{title}</h2>
           </div>
-          <button type="button" class="manage-secondary" onClick={onClose}>Close</button>
+          <button type="button" class="manage-secondary" data-modal-initial-focus onClick={requestClose} disabled={preventClose}>Close</button>
         </header>
         {children}
       </section>
@@ -255,28 +334,252 @@ function ReviewEditor({ review, onChange, onRemove }: { review: Review; onChange
   );
 }
 
-function ReviewModal({ onAdd, onClose }: { onAdd: (review: Review) => void; onClose: () => void }) {
-  const [review, setReview] = useState(newReview());
-  const submit = (event: Event) => {
-    event.preventDefault();
-    onAdd(review);
+function displayVisitDate(value: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${value}T00:00:00Z`));
+}
+
+export function ReviewComposer({
+  placeName,
+  visit,
+  visits,
+  hasUnsavedPlaceChanges,
+  onSave,
+  onClose,
+}: {
+  placeName: string;
+  visit: Visit;
+  visits: Visit[];
+  hasUnsavedPlaceChanges: boolean;
+  onSave: (review: Review) => Promise<void>;
+  onClose: () => void;
+}) {
+  const allReviewers = knownReviewers(visits);
+  const reviewerChoices = availableReviewers(visits, visit);
+  const initialReviewer = reviewerChoices[0];
+  const [selectedReviewerId, setSelectedReviewerId] = useState(initialReviewer?.reviewerId ?? '__new__');
+  const [newReviewerName, setNewReviewerName] = useState('');
+  const [review, setReview] = useState<Review>(() => createReview(initialReviewer ?? { reviewerId: '', reviewerName: '' }));
+  const [activeRating, setActiveRating] = useState<RatingKey>('broth');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const scoreGroupId = useId();
+  const activeLegendRef = useRef<HTMLLegendElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  const ratedCount = RATING_CATEGORIES.filter(({ key }) => review.ratings[key] !== undefined).length;
+  const score = scoreReview(review);
+  const activeLabel = RATING_CATEGORIES.find(({ key }) => key === activeRating)?.label ?? activeRating;
+  const hasDraftContent = ratedCount > 0 || Boolean(review.notes?.trim()) || Boolean(newReviewerName.trim());
+
+  const focusActiveRating = () => requestAnimationFrame(() => activeLegendRef.current?.focus());
+  const showError = (message: string) => {
+    setError(message);
+    requestAnimationFrame(() => errorRef.current?.focus());
+  };
+  const requestClose = () => {
+    if (saving) return;
+    if (hasDraftContent && !window.confirm('Discard this review?')) return;
     onClose();
   };
+  const chooseReviewer = (reviewerId: string) => {
+    setSelectedReviewerId(reviewerId);
+    setError('');
+    if (reviewerId === '__new__') {
+      setReview((current) => ({ ...current, reviewerId: '', reviewerName: '' }));
+      return;
+    }
+    const identity = reviewerChoices.find((candidate) => candidate.reviewerId === reviewerId);
+    if (identity) setReview((current) => ({ ...current, ...identity }));
+  };
+  const rate = (value: number, advance: boolean) => {
+    const nextReview = setReviewRating(review, activeRating, value);
+    setReview(nextReview);
+    setError('');
+    if (advance) {
+      setActiveRating(nextUnratedRatingKey(nextReview.ratings, activeRating));
+      focusActiveRating();
+    }
+  };
+  const skip = () => {
+    const nextReview = setReviewRating(review, activeRating, null);
+    setReview(nextReview);
+    setActiveRating(nextUnratedRatingKey(nextReview.ratings, activeRating));
+    focusActiveRating();
+  };
+  const resolveIdentity = (): ReviewerIdentity | null => {
+    if (selectedReviewerId !== '__new__') {
+      return reviewerChoices.find(({ reviewerId }) => reviewerId === selectedReviewerId) ?? null;
+    }
+    const reviewerName = newReviewerName.trim();
+    if (!reviewerName) return null;
+    const existingIdentity = allReviewers.find((candidate) => candidate.reviewerName.toLocaleLowerCase() === reviewerName.toLocaleLowerCase());
+    if (existingIdentity) return existingIdentity;
+    return {
+      reviewerId: reviewerIdFromName(reviewerName, allReviewers.map(({ reviewerId }) => reviewerId)),
+      reviewerName,
+    };
+  };
+  const submit = async (event: Event) => {
+    event.preventDefault();
+    const identity = resolveIdentity();
+    if (!identity) {
+      showError('Choose a reviewer or enter a new reviewer name.');
+      return;
+    }
+    if (visit.reviews.some(({ reviewerId }) => reviewerId === identity.reviewerId)) {
+      showError(`${identity.reviewerName} already reviewed this visit.`);
+      return;
+    }
+    const notes = review.notes?.trim();
+    if (ratedCount === 0 && !notes) {
+      showError('Add at least one score or a note before saving.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      await onSave({
+        ...review,
+        ...identity,
+        ...(notes ? { notes } : { notes: undefined }),
+      });
+      onClose();
+    } catch (reason) {
+      showError(reason instanceof Error ? reason.message : 'The review could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <Modal eyebrow="New review" title="Add reviewer notes" onClose={onClose}>
-      <form class="manage-modal-form" onSubmit={submit}>
-        <ReviewEditor review={review} onChange={setReview} onRemove={onClose} />
-        <div class="manage-modal-actions">
-          <button type="button" class="manage-secondary" onClick={onClose}>Cancel</button>
-          <button class="manage-primary" type="submit">Add review</button>
+    <Modal
+      eyebrow={`${placeName} · ${displayVisitDate(visit.date)}`}
+      title="Add review"
+      onClose={requestClose}
+      preventClose={saving}
+      panelClass="review-composer-modal"
+    >
+      <form class="manage-modal-form review-composer-form" aria-busy={saving} onSubmit={submit}>
+        <label class="manage-field review-composer-reviewer">
+          <span>Who is reviewing?</span>
+          {reviewerChoices.length > 0 ? (
+            <select value={selectedReviewerId} onChange={(event) => chooseReviewer(event.currentTarget.value)}>
+              {reviewerChoices.map(({ reviewerId, reviewerName }) => <option value={reviewerId} key={reviewerId}>{reviewerName}</option>)}
+              <option value="__new__">Add a new reviewer</option>
+            </select>
+          ) : <span class="review-composer-empty-choice">No saved reviewers are available for this visit.</span>}
+        </label>
+
+        {(selectedReviewerId === '__new__' || reviewerChoices.length === 0) && (
+          <label class="manage-field">
+            <span>New reviewer name</span>
+            <input
+              type="text"
+              value={newReviewerName}
+              autocomplete="name"
+              onInput={(event) => {
+                setNewReviewerName(event.currentTarget.value);
+                setReview((current) => ({ ...current, reviewerId: '', reviewerName: event.currentTarget.value }));
+                setError('');
+              }}
+            />
+          </label>
+        )}
+
+        <section class="review-composer-scores" aria-labelledby={`${scoreGroupId}-scores-title`}>
+          <header class="review-composer-score-header">
+            <div>
+              <p class="eyebrow">Scores</p>
+              <h3 id={`${scoreGroupId}-scores-title`}>Rate what mattered</h3>
+            </div>
+            <strong>{formatScore(score)}</strong>
+          </header>
+
+          <fieldset class="review-score-picker">
+            <legend ref={activeLegendRef} tabIndex={-1}>{activeLabel} · choose 1–10</legend>
+            <p class="review-score-hint">Tap a score to move to the next unrated category. Keyboard selection stays here.</p>
+            <div class="review-score-options">
+              {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => {
+                const id = `${scoreGroupId}-${activeRating}-${value}`;
+                return (
+                  <span class="review-score-choice" key={value}>
+                    <input
+                      class="review-score-input"
+                      id={id}
+                      name={`${scoreGroupId}-${activeRating}-score`}
+                      type="radio"
+                      value={value}
+                      checked={review.ratings[activeRating] === value}
+                      onChange={() => rate(value, false)}
+                      onClick={(event) => { if (event.detail > 0) rate(value, true); }}
+                    />
+                    <label class="review-score-option" for={id}>{value}</label>
+                  </span>
+                );
+              })}
+            </div>
+            <button type="button" class="review-composer-skip" onClick={skip}>Skip · not rated</button>
+          </fieldset>
+
+          <div class="review-category-grid" aria-label="Rating categories">
+            {RATING_CATEGORIES.map(({ key, label }) => (
+              <button
+                type="button"
+                class="review-category-button"
+                aria-pressed={activeRating === key}
+                aria-label={`${label}, ${review.ratings[key] === undefined ? 'not rated' : `rated ${review.ratings[key]}`}`}
+                onClick={() => { setActiveRating(key); focusActiveRating(); }}
+                key={key}
+              >
+                <span>{label}</span>
+                <strong>{review.ratings[key] ?? '—'}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <label class="manage-field">
+          <span>Notes <small>(optional)</small></span>
+          <textarea
+            value={review.notes ?? ''}
+            rows={3}
+            placeholder="What stood out about the bowl?"
+            onInput={(event) => { setReview({ ...review, notes: event.currentTarget.value || undefined }); setError(''); }}
+          />
+        </label>
+
+        {hasUnsavedPlaceChanges && <p class="review-composer-warning">Saving this review also saves your other place edits.</p>}
+        {error && <p ref={errorRef} class="review-composer-error" role="alert" tabIndex={-1}>{error}</p>}
+
+        <div class="review-composer-actions">
+          <p class="review-composer-status" aria-live="polite" aria-atomic="true">
+            {ratedCount} of {RATING_CATEGORIES.length} rated{score === null ? '' : ` · Average ${formatScore(score)}`}
+          </p>
+          <button class="manage-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save review'}</button>
         </div>
       </form>
     </Modal>
   );
 }
 
-function VisitEditor({ visit, number, onChange, onRemove }: { visit: Visit; number: number; onChange: (visit: Visit) => void; onRemove: () => void }) {
-  const [addingReview, setAddingReview] = useState(false);
+function VisitEditor({
+  visit,
+  number,
+  onChange,
+  onRemove,
+  onRequestAddReview,
+}: {
+  visit: Visit;
+  number: number;
+  onChange: (visit: Visit) => void;
+  onRemove: () => void;
+  onRequestAddReview: () => void;
+}) {
   const changeReview = (index: number, review: Review) => onChange({ ...visit, reviews: visit.reviews.map((item, i) => i === index ? review : item) });
   const dishes = (value: string) => csv(value).map((dish) => {
     const [name, notes] = dish.split('|').map((part) => part.trim());
@@ -308,14 +611,14 @@ function VisitEditor({ visit, number, onChange, onRemove }: { visit: Visit; numb
           <p class="eyebrow">Scores</p>
           <h4>Reviews</h4>
         </div>
-        <button type="button" class="manage-secondary" onClick={() => setAddingReview(true)}>Add reviewer</button>
+        <button type="button" class="manage-secondary" onClick={onRequestAddReview}>Add review</button>
       </div>
       <div class="review-editor-list">
         {visit.reviews.map((review, index) => (
           <ReviewEditor key={`${review.reviewerId}-${index}`} review={review} onChange={(value) => changeReview(index, value)} onRemove={() => onChange({ ...visit, reviews: visit.reviews.filter((_, i) => i !== index) })} />
         ))}
+        {visit.reviews.length === 0 && <p class="review-editor-empty">Add the first review to finish this visit.</p>}
       </div>
-      {addingReview && <ReviewModal onClose={() => setAddingReview(false)} onAdd={(review) => onChange({ ...visit, reviews: [...visit.reviews, review] })} />}
     </section>
   );
 }
@@ -323,6 +626,8 @@ function VisitEditor({ visit, number, onChange, onRemove }: { visit: Visit; numb
 function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isNew: boolean; onSaved: (place: FirestorePlace) => void }) {
   const [place, setPlace] = useState(initial);
   const [message, setMessage] = useState('');
+  const [reviewVisitId, setReviewVisitId] = useState<string>();
+  const [pendingNewVisitId, setPendingNewVisitId] = useState<string>();
   const set = <K extends keyof FirestorePlace>(key: K, value: FirestorePlace[K]) => setPlace((current) => ({ ...current, [key]: value }));
   const updateVisit = (index: number, visit: Visit) => set('visits', place.visits.map((item, i) => i === index ? visit : item));
   const applyMapsUrl = (mapUrl: string) => {
@@ -342,21 +647,52 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
     }));
   };
 
+  const persist = async (candidate: FirestorePlace, expectedUpdatedAt = place.updatedAt) => {
+    const validated = parsePlaceDocument(candidate);
+    const saved = await savePlace(validated, expectedUpdatedAt);
+    setPlace(saved);
+    onSaved(saved);
+    return saved;
+  };
   const save = async (event: Event) => {
     event.preventDefault();
     setMessage('Saving…');
     try {
-      const validated = parsePlaceDocument(place);
-      const saved = await savePlace(validated, initial.updatedAt);
-      setPlace(saved);
-      onSaved(saved);
+      await persist(place);
       setMessage('Saved. Public pages will show this version when refreshed.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The place could not be saved.');
     }
   };
+  const addVisit = () => {
+    const visit = newVisit(place.visits);
+    setPlace((current) => ({ ...current, visits: [...current.visits, visit] }));
+    setPendingNewVisitId(visit.id);
+    setReviewVisitId(visit.id);
+  };
+  const closeReviewComposer = () => {
+    if (reviewVisitId === pendingNewVisitId) {
+      setPlace((current) => ({
+        ...current,
+        visits: current.visits.filter(({ id, reviews }) => id !== pendingNewVisitId || reviews.length > 0),
+      }));
+      setPendingNewVisitId(undefined);
+    }
+    setReviewVisitId(undefined);
+  };
+  const saveReview = async (review: Review) => {
+    if (!reviewVisitId) throw new Error('Visit no longer exists.');
+    const saved = await saveReviewToVisit(place, reviewVisitId, review, persist);
+    setPlace(saved);
+    setPendingNewVisitId(undefined);
+    setMessage('Review saved. Public pages will show it when refreshed.');
+  };
+  const selectedReviewVisit = place.visits.find(({ id }) => id === reviewVisitId);
+  const withoutVersion = ({ updatedAt: _updatedAt, ...value }: FirestorePlace) => value;
+  const hasUnsavedPlaceChanges = JSON.stringify(withoutVersion(place)) !== JSON.stringify(withoutVersion(initial));
 
   return (
+    <>
     <form class="manage-editor" onSubmit={save}>
       <div class="manage-editor-hero">
         <div>
@@ -415,10 +751,10 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
         </div>
       </SectionCard>
 
-      <SectionCard eyebrow="Visits" title="Visit log" action={<button type="button" class="manage-secondary" onClick={() => set('visits', [...place.visits, newVisit()])}>Add visit</button>}>
+      <SectionCard eyebrow="Visits" title="Visit log" action={<button type="button" class="manage-secondary" onClick={addVisit}>Add visit</button>}>
         {place.visits.length > 0 ? (
           <div class="visit-editor-list">
-            {place.visits.map((visit, index) => <VisitEditor key={`${visit.id}-${index}`} visit={visit} number={index + 1} onChange={(value) => updateVisit(index, value)} onRemove={() => set('visits', place.visits.filter((_, i) => i !== index))} />)}
+            {place.visits.map((visit, index) => <VisitEditor key={`${visit.id}-${index}`} visit={visit} number={index + 1} onChange={(value) => updateVisit(index, value)} onRemove={() => set('visits', place.visits.filter((_, i) => i !== index))} onRequestAddReview={() => setReviewVisitId(visit.id)} />)}
           </div>
         ) : (
           <div class="manage-empty compact">
@@ -428,6 +764,17 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
         )}
       </SectionCard>
     </form>
+    {selectedReviewVisit && (
+      <ReviewComposer
+        placeName={place.name}
+        visit={selectedReviewVisit}
+        visits={place.visits}
+        hasUnsavedPlaceChanges={hasUnsavedPlaceChanges}
+        onSave={saveReview}
+        onClose={closeReviewComposer}
+      />
+    )}
+    </>
   );
 }
 
