@@ -18,12 +18,15 @@ import { type RatingKey, type Review, type Visit } from '../../domain/place-sche
 import { readManageIntent } from '../../domain/urls';
 import { observeUser, signInWithGoogle, signOutUser } from '../../firebase/auth';
 import { isApprovedEditor, listEditorPlaces, savePlace } from '../../firebase/places';
+import { readCloudinaryConfig } from '../../media/cloudinary';
+import { ImageUploadControl } from './ImageUploadControl';
 import { LoadState } from './PlaceBits';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const slugify = (value: string) => value.toLocaleLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const csv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
 const placeholderImage = '/images/places/unvisited/placeholder.svg';
+const cloudinaryConfig = readCloudinaryConfig(import.meta.env);
 
 type EditorSection = 'basics' | 'location' | 'classification' | 'images' | 'visits';
 type EditorCommand = { type: 'log-visit' | 'add-review'; token: number };
@@ -605,12 +608,14 @@ function VisitEditor({
   onChange,
   onRemove,
   onRequestAddReview,
+  onUploadStateChange,
 }: {
   visit: Visit;
   number: number;
   onChange: (visit: Visit) => void;
   onRemove: () => void;
   onRequestAddReview: () => void;
+  onUploadStateChange: (uploading: boolean) => void;
 }) {
   const changeReview = (index: number, review: Review) => onChange({ ...visit, reviews: visit.reviews.map((item, i) => i === index ? review : item) });
   const dishes = (value: string) => csv(value).map((dish) => {
@@ -637,6 +642,12 @@ function VisitEditor({
         <Field label="Visit notes" value={visit.notes ?? ''} multiline placeholder="Short summary for this visit…" onInput={(notes) => onChange({ ...visit, notes: notes || undefined })} />
         <Field label="Dishes" value={visit.dishes.map(({ name, notes }) => `${name}${notes ? ` | ${notes}` : ''}`).join(', ')} help="Format: name | notes, comma-separated." onInput={(value) => onChange({ ...visit, dishes: dishes(value) })} />
         <Field label="Visit photos" value={visit.photos.map(({ src, alt, caption }) => `${src} | ${alt}${caption ? ` | ${caption}` : ''}`).join(', ')} help="Format: URL/path | alt | caption." onInput={(value) => onChange({ ...visit, photos: photos(value) })} />
+        {cloudinaryConfig && <ImageUploadControl
+          label="Add visit photo"
+          config={cloudinaryConfig}
+          onUploaded={(image) => onChange({ ...visit, photos: [...visit.photos, image] })}
+          onUploadingChange={onUploadStateChange}
+        />}
       </div>
       <div class="manage-card__header compact">
         <div>
@@ -674,10 +685,13 @@ function PlaceEditor({
   const [reviewVisitId, setReviewVisitId] = useState<string>();
   const [pendingNewVisitId, setPendingNewVisitId] = useState<string>();
   const [savingPlace, setSavingPlace] = useState(false);
+  const [activeUploads, setActiveUploads] = useState(0);
   const savingPlaceRef = useRef(false);
   const handledCommandRef = useRef<number>();
   const placeMessageRef = useRef<HTMLParagraphElement>(null);
   const reviewSavedRef = useRef(false);
+  const isUploading = activeUploads > 0;
+  const updateUploadState = (uploading: boolean) => setActiveUploads((current) => Math.max(0, current + (uploading ? 1 : -1)));
   const set = <K extends keyof FirestorePlace>(key: K, value: FirestorePlace[K]) => setPlace((current) => ({ ...current, [key]: value }));
   const updateVisit = (index: number, visit: Visit) => set('visits', place.visits.map((item, i) => i === index ? visit : item));
   const applyMapsUrl = (mapUrl: string) => {
@@ -698,6 +712,7 @@ function PlaceEditor({
   };
 
   const persist = async (candidate: FirestorePlace, expectedUpdatedAt = place.updatedAt, announce = true) => {
+    if (isUploading) throw new Error('Wait for the photo upload to finish.');
     if (savingPlaceRef.current) throw new Error('A save is already in progress.');
     savingPlaceRef.current = true;
     setSavingPlace(true);
@@ -714,6 +729,7 @@ function PlaceEditor({
   };
   const save = async (event: Event) => {
     event.preventDefault();
+    if (isUploading) return;
     setMessage('Saving…');
     requestAnimationFrame(() => placeMessageRef.current?.focus());
     try {
@@ -767,7 +783,7 @@ function PlaceEditor({
     else setMessage('Choose a visit below, then select Add review.');
   }, [initialCommand?.token]);
   const requestBack = () => {
-    if (savingPlace) return;
+    if (savingPlace || isUploading) return;
     if ((isNew || hasUnsavedPlaceChanges) && !window.confirm(isNew ? 'Discard this new place?' : 'Discard unsaved place changes?')) return;
     onBack();
   };
@@ -776,7 +792,7 @@ function PlaceEditor({
     <>
     <form class="manage-editor" onSubmit={save}>
       {message && <p ref={placeMessageRef} class="manage-message" aria-live="polite" tabIndex={-1}>{message}</p>}
-      <fieldset class="manage-editor-fields" disabled={savingPlace} aria-busy={savingPlace}>
+      <fieldset class="manage-editor-fields" disabled={savingPlace || isUploading} aria-busy={savingPlace || isUploading}>
       <div class="manage-editor-hero">
         <div>
           <button type="button" class="manage-mobile-back" onClick={requestBack}>← Places</button>
@@ -784,7 +800,7 @@ function PlaceEditor({
           <h2>{place.name}</h2>
           <p>{place.location.city} · {place.status.replaceAll('-', ' ')} · {place.visits.length} {place.visits.length === 1 ? 'visit' : 'visits'}</p>
         </div>
-        <button class="manage-primary" type="submit">{savingPlace ? 'Saving…' : 'Save place'}</button>
+        <button class="manage-primary" type="submit">{isUploading ? 'Uploading…' : savingPlace ? 'Saving…' : 'Save place'}</button>
       </div>
 
       <nav class="manage-section-nav" aria-label="Edit place sections">
@@ -850,6 +866,20 @@ function PlaceEditor({
       <div id="manage-section-images" class={`manage-section-panel${activeSection === 'images' ? ' is-active' : ''}`} data-manage-section="images">
       <SectionCard eyebrow="Images" title="Cover and gallery">
         <div class="manage-grid">
+          {cloudinaryConfig ? <>
+            <ImageUploadControl
+              label="Upload cover photo"
+              config={cloudinaryConfig}
+              onUploaded={(coverImage) => set('coverImage', coverImage)}
+              onUploadingChange={updateUploadState}
+            />
+            <ImageUploadControl
+              label="Add gallery photo"
+              config={cloudinaryConfig}
+              onUploaded={(image) => set('gallery', [...place.gallery, image])}
+              onUploadingChange={updateUploadState}
+            />
+          </> : <p class="cloudinary-upload-notice">Cloudinary uploads are not configured yet. You can still paste an image URL or repository path below.</p>}
           <Field label="Cover image URL/path" value={place.coverImage.src} required help="Use /images/places/... or an HTTPS URL." onInput={(src) => set('coverImage', { ...place.coverImage, src })} />
           <Field label="Cover alt text" value={place.coverImage.alt} required onInput={(alt) => set('coverImage', { ...place.coverImage, alt })} />
           <Field label="Cover caption" value={place.coverImage.caption ?? ''} onInput={(caption) => set('coverImage', { ...place.coverImage, caption: caption || undefined })} />
@@ -862,7 +892,7 @@ function PlaceEditor({
       <SectionCard eyebrow="Visits" title="Visit log" action={<button type="button" class="manage-secondary" onClick={addVisit}>Add visit</button>}>
         {place.visits.length > 0 ? (
           <div class="visit-editor-list">
-            {place.visits.map((visit, index) => <VisitEditor key={`${visit.id}-${index}`} visit={visit} number={index + 1} onChange={(value) => updateVisit(index, value)} onRemove={() => set('visits', place.visits.filter((_, i) => i !== index))} onRequestAddReview={() => { reviewSavedRef.current = false; setReviewVisitId(visit.id); }} />)}
+            {place.visits.map((visit, index) => <VisitEditor key={`${visit.id}-${index}`} visit={visit} number={index + 1} onChange={(value) => updateVisit(index, value)} onRemove={() => set('visits', place.visits.filter((_, i) => i !== index))} onRequestAddReview={() => { reviewSavedRef.current = false; setReviewVisitId(visit.id); }} onUploadStateChange={updateUploadState} />)}
           </div>
         ) : (
           <div class="manage-empty compact">

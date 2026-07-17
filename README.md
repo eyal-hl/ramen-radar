@@ -8,7 +8,7 @@ An Astro directory and ranking site for ramen around Givatayim and Tel Aviv. Git
 - Google Authentication identifies editors.
 - A user may edit only when `editors/{uid}` exists. Browser clients cannot modify the editor allowlist.
 - Security Rules hide archived places and deny all unapproved writes.
-- Repository images live under `public/images/places/`; HTTPS image URLs are also accepted.
+- Repository images live under `public/images/places/`; HTTPS image URLs are also accepted. Optional Cloudinary uploads let approved editors add JPEG, PNG, and WebP photos directly from a phone or computer.
 - Public detail URLs use `/place/?id=<place-id>` so newly added places work immediately on GitHub Pages.
 - Firestore is the production source of truth. Legacy JSON place data and the temporary importer have been removed after migration.
 
@@ -69,7 +69,24 @@ Add images under `public/images/places/<place-id>/`, commit, and push them. Afte
 /images/places/<place-id>/<filename>
 ```
 
-Every image requires meaningful alt text. External images must use HTTPS. Direct image uploads are intentionally not supported, keeping the project on Firebase Spark without payment information.
+Every image requires meaningful alt text. External images must use HTTPS.
+
+### Optional Cloudinary uploads
+
+Cloudinary stores directly uploaded photos, so the Firebase project can remain on the Spark plan. The site only uses two public values: the cloud name and an unsigned upload-preset name. Never add a Cloudinary API key or API secret to this repository or to GitHub Actions variables.
+
+1. In Cloudinary, create an **unsigned** upload preset, such as `ramen-radar-images-v1`.
+2. Configure the preset to accept only `jpg`, `jpeg`, `png`, and `webp`, set a **5 MB** maximum file size, enable **disallow public ID**, and choose a preset-controlled folder such as `ramen-radar`.
+3. Add these values locally in `.env` and as GitHub repository **Variables** for the Pages workflow:
+
+```text
+PUBLIC_CLOUDINARY_CLOUD_NAME=your-cloud-name
+PUBLIC_CLOUDINARY_UPLOAD_PRESET=ramen-radar-images-v1
+```
+
+The management editor then shows upload controls for a cover, gallery, and visit photos. Uploading adds the returned HTTPS URL to the unsaved place draft; select **Save place** to publish the reference in Firestore. Removing a photo only removes its site reference, not the Cloudinary asset.
+
+Unsigned preset names are visible to site visitors, so Cloudinary's format, size, and folder restrictions are essential. If uploads ever need stronger protection than those limits, use a server-side signed-upload endpoint rather than exposing a secret in the browser.
 
 ## Local development
 
