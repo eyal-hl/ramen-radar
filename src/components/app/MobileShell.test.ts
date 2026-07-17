@@ -1,9 +1,18 @@
+// @vitest-environment happy-dom
+
 import { h } from 'preact';
+import { render } from 'preact';
 import renderToString from 'preact-render-to-string';
-import { describe, expect, it, vi } from 'vitest';
+import { act } from 'preact/test-utils';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MobilePrimaryNav, PlaceActionDock, QuickAddSheet } from './MobileShell';
 
 describe('mobile application shell', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+    document.body.style.overflow = '';
+  });
+
   it('renders the three primary destinations and a distinct quick-add action', () => {
     const html = renderToString(h(MobilePrimaryNav, {
       activeView: 'journal',
@@ -31,6 +40,31 @@ describe('mobile application shell', () => {
     expect(html).toContain('/ramen-radar/manage/?action=add-place');
     expect(html).toContain('/ramen-radar/manage/?action=log-visit');
     expect(html).toContain('/ramen-radar/manage/?action=add-review');
+  });
+
+  it('traps keyboard focus, closes globally with Escape, and restores the trigger', async () => {
+    const trigger = document.createElement('button');
+    const container = document.createElement('div');
+    document.body.append(trigger, container);
+    trigger.focus();
+    const onClose = vi.fn();
+
+    await act(() => render(h(QuickAddSheet, { base: '/', onClose }), container));
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]');
+    const controls = [...container.querySelectorAll<HTMLElement>('button, a[href]')];
+    expect(dialog).not.toBeNull();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    controls.at(-1)?.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(controls[0]);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(onClose).toHaveBeenCalledOnce();
+
+    await act(() => render(null, container));
+    expect(document.activeElement).toBe(trigger);
+    expect(document.body.style.overflow).toBe('');
   });
 
   it('keeps detail-page decisions within thumb reach', () => {

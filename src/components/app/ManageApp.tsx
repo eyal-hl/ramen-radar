@@ -15,6 +15,7 @@ import {
 } from '../../domain/review-composer';
 import { RATING_CATEGORIES, formatScore, scoreReview } from '../../domain/ratings';
 import { type RatingKey, type Review, type Visit } from '../../domain/place-schema';
+import { readManageIntent } from '../../domain/urls';
 import { observeUser, signInWithGoogle, signOutUser } from '../../firebase/auth';
 import { isApprovedEditor, listEditorPlaces, savePlace } from '../../firebase/places';
 import { LoadState } from './PlaceBits';
@@ -23,6 +24,18 @@ const today = () => new Date().toISOString().slice(0, 10);
 const slugify = (value: string) => value.toLocaleLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const csv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
 const placeholderImage = '/images/places/unvisited/placeholder.svg';
+
+type EditorSection = 'basics' | 'location' | 'classification' | 'images' | 'visits';
+type EditorCommand = { type: 'log-visit' | 'add-review'; token: number };
+type PlaceSelectionAction = EditorCommand['type'];
+
+const editorSections: ReadonlyArray<{ id: EditorSection; label: string; description: string }> = [
+  { id: 'basics', label: 'Basics', description: 'Name, status, and description' },
+  { id: 'location', label: 'Location and links', description: 'Map, menu, phone, and reservations' },
+  { id: 'classification', label: 'Tags, price, and diet', description: 'Styles, dietary options, and public filters' },
+  { id: 'images', label: 'Images', description: 'Cover and gallery' },
+  { id: 'visits', label: 'Visit history', description: 'Visits, dishes, and reviews' },
+];
 
 function signInErrorMessage(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
@@ -642,13 +655,27 @@ function VisitEditor({
   );
 }
 
-function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isNew: boolean; onSaved: (place: FirestorePlace, announce?: boolean) => void }) {
+function PlaceEditor({
+  initial,
+  isNew,
+  initialCommand,
+  onSaved,
+  onBack,
+}: {
+  initial: FirestorePlace;
+  isNew: boolean;
+  initialCommand?: EditorCommand;
+  onSaved: (place: FirestorePlace, announce?: boolean) => void;
+  onBack: () => void;
+}) {
   const [place, setPlace] = useState(initial);
   const [message, setMessage] = useState('');
+  const [activeSection, setActiveSection] = useState<EditorSection>('basics');
   const [reviewVisitId, setReviewVisitId] = useState<string>();
   const [pendingNewVisitId, setPendingNewVisitId] = useState<string>();
   const [savingPlace, setSavingPlace] = useState(false);
   const savingPlaceRef = useRef(false);
+  const handledCommandRef = useRef<number>();
   const placeMessageRef = useRef<HTMLParagraphElement>(null);
   const reviewSavedRef = useRef(false);
   const set = <K extends keyof FirestorePlace>(key: K, value: FirestorePlace[K]) => setPlace((current) => ({ ...current, [key]: value }));
@@ -732,6 +759,18 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
   const selectedReviewVisit = place.visits.find(({ id }) => id === reviewVisitId);
   const withoutVersion = ({ updatedAt: _updatedAt, ...value }: FirestorePlace) => value;
   const hasUnsavedPlaceChanges = JSON.stringify(withoutVersion(place)) !== JSON.stringify(withoutVersion(initial));
+  useEffect(() => {
+    if (!initialCommand || handledCommandRef.current === initialCommand.token) return;
+    handledCommandRef.current = initialCommand.token;
+    setActiveSection('visits');
+    if (initialCommand.type === 'log-visit') addVisit();
+    else setMessage('Choose a visit below, then select Add review.');
+  }, [initialCommand?.token]);
+  const requestBack = () => {
+    if (savingPlace) return;
+    if ((isNew || hasUnsavedPlaceChanges) && !window.confirm(isNew ? 'Discard this new place?' : 'Discard unsaved place changes?')) return;
+    onBack();
+  };
 
   return (
     <>
@@ -740,6 +779,7 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
       <fieldset class="manage-editor-fields" disabled={savingPlace} aria-busy={savingPlace}>
       <div class="manage-editor-hero">
         <div>
+          <button type="button" class="manage-mobile-back" onClick={requestBack}>← Places</button>
           <p class="eyebrow">{isNew ? 'Create place' : 'Edit place'}</p>
           <h2>{place.name}</h2>
           <p>{place.location.city} · {place.status.replaceAll('-', ' ')} · {place.visits.length} {place.visits.length === 1 ? 'visit' : 'visits'}</p>
@@ -747,6 +787,23 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
         <button class="manage-primary" type="submit">{savingPlace ? 'Saving…' : 'Save place'}</button>
       </div>
 
+      <nav class="manage-section-nav" aria-label="Edit place sections">
+        {editorSections.map(({ id, label, description }) => (
+          <button
+            type="button"
+            class={activeSection === id ? 'manage-section-button active' : 'manage-section-button'}
+            aria-pressed={activeSection === id}
+            aria-controls={`manage-section-${id}`}
+            onClick={() => setActiveSection(id)}
+            key={id}
+          >
+            <strong>{label}</strong>
+            <span>{description}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div id="manage-section-basics" class={`manage-section-panel${activeSection === 'basics' ? ' is-active' : ''}`} data-manage-section="basics">
       <SectionCard eyebrow="Basics" title="Place details">
         <div class="manage-grid">
           <Field label="ID" value={place.id} required readOnly={!isNew} help="Used in URLs and Firestore. Cannot change after creation." onInput={(id) => set('id', slugify(id))} />
@@ -759,7 +816,9 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
           <label class="manage-check"><input type="checkbox" checked={place.archived} onChange={(event) => set('archived', event.currentTarget.checked)} /> Archived, hidden publicly</label>
         </div>
       </SectionCard>
+      </div>
 
+      <div id="manage-section-location" class={`manage-section-panel${activeSection === 'location' ? ' is-active' : ''}`} data-manage-section="location">
       <SectionCard eyebrow="Where" title="Location and links">
         <div class="manage-grid">
           <Field label="Address" value={place.location.address} required onInput={(address) => set('location', { ...place.location, address })} />
@@ -773,7 +832,9 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
           <Field label="Phone" value={place.links.phone ?? ''} onInput={(phone) => set('links', { ...place.links, phone: phone || undefined })} />
         </div>
       </SectionCard>
+      </div>
 
+      <div id="manage-section-classification" class={`manage-section-panel${activeSection === 'classification' ? ' is-active' : ''}`} data-manage-section="classification">
       <SectionCard eyebrow="Tags" title="Classification">
         <div class="manage-grid">
           <SelectField label="Price range" value={place.priceRange} options={[['$', '$'], ['$$', '$$'], ['$$$', '$$$'], ['$$$$', '$$$$']]} onChange={(priceRange) => set('priceRange', priceRange)} />
@@ -784,7 +845,9 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
           <Field label="Opening-hours note" value={place.openingHoursNote ?? ''} onInput={(openingHoursNote) => set('openingHoursNote', openingHoursNote || undefined)} />
         </div>
       </SectionCard>
+      </div>
 
+      <div id="manage-section-images" class={`manage-section-panel${activeSection === 'images' ? ' is-active' : ''}`} data-manage-section="images">
       <SectionCard eyebrow="Images" title="Cover and gallery">
         <div class="manage-grid">
           <Field label="Cover image URL/path" value={place.coverImage.src} required help="Use /images/places/... or an HTTPS URL." onInput={(src) => set('coverImage', { ...place.coverImage, src })} />
@@ -793,7 +856,9 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
           <Field label="Gallery" value={place.gallery.map(({ src, alt, caption }) => `${src} | ${alt}${caption ? ` | ${caption}` : ''}`).join(', ')} multiline help="Format: URL/path | alt | caption, comma-separated." onInput={(value) => set('gallery', csv(value).map((entry) => { const [src, alt, caption] = entry.split('|').map((part) => part.trim()); return { src, alt, ...(caption ? { caption } : {}) }; }))} />
         </div>
       </SectionCard>
+      </div>
 
+      <div id="manage-section-visits" class={`manage-section-panel${activeSection === 'visits' ? ' is-active' : ''}`} data-manage-section="visits">
       <SectionCard eyebrow="Visits" title="Visit log" action={<button type="button" class="manage-secondary" onClick={addVisit}>Add visit</button>}>
         {place.visits.length > 0 ? (
           <div class="visit-editor-list">
@@ -806,6 +871,7 @@ function PlaceEditor({ initial, isNew, onSaved }: { initial: FirestorePlace; isN
           </div>
         )}
       </SectionCard>
+      </div>
       </fieldset>
     </form>
     {selectedReviewVisit && (
@@ -826,29 +892,116 @@ export default function ManageApp() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [approved, setApproved] = useState<boolean | undefined>(undefined);
   const [places, setPlaces] = useState<FirestorePlace[]>([]);
+  const [placesLoaded, setPlacesLoaded] = useState(false);
   const [selected, setSelected] = useState<FirestorePlace>();
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [startingPlace, setStartingPlace] = useState(false);
+  const [pendingPlaceAction, setPendingPlaceAction] = useState<PlaceSelectionAction>();
+  const [editorCommand, setEditorCommand] = useState<EditorCommand>();
+  const intentRef = useRef(typeof location === 'undefined'
+    ? { action: null, placeId: null }
+    : readManageIntent(location.search));
+  const handledIntentRef = useRef(false);
+  const commandTokenRef = useRef(0);
 
-  useEffect(() => observeUser((nextUser) => { setUser(nextUser); setApproved(undefined); }), []);
+  useEffect(() => observeUser((nextUser) => {
+    setUser(nextUser);
+    setApproved(undefined);
+    setPlacesLoaded(false);
+  }), []);
   useEffect(() => {
     if (!user) {
       setApproved(false);
+      setPlacesLoaded(false);
       return;
     }
-    void isApprovedEditor(user.uid)
-      .then((allowed) => { setApproved(allowed); if (allowed) void listEditorPlaces().then(setPlaces); })
-      .catch(() => setError('Editor access could not be checked.'));
+    let active = true;
+    void isApprovedEditor(user.uid).then(async (allowed) => {
+      if (!active) return;
+      setApproved(allowed);
+      if (!allowed) return;
+      const nextPlaces = await listEditorPlaces();
+      if (!active) return;
+      setPlaces(nextPlaces);
+      setPlacesLoaded(true);
+    }).catch(() => {
+      if (active) setError('Editor access or the place list could not be loaded.');
+    });
+    return () => { active = false; };
   }, [user]);
+  useEffect(() => {
+    if (!approved || !placesLoaded || handledIntentRef.current) return;
+    handledIntentRef.current = true;
+    const { action, placeId } = intentRef.current;
+
+    if (action && typeof location !== 'undefined') {
+      const url = new URL(location.href);
+      url.searchParams.delete('action');
+      history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+    if (action === 'add-place') {
+      setStartingPlace(true);
+      return;
+    }
+
+    const target = placeId ? places.find(({ id }) => id === placeId) : undefined;
+    if (placeId && !target) {
+      setNotice(`The place “${placeId}” is not available in the editor.`);
+      return;
+    }
+    if (target) {
+      setSelected(target);
+      setIsNew(false);
+    }
+    if ((action === 'log-visit' || action === 'add-review') && target) {
+      commandTokenRef.current += 1;
+      setEditorCommand({ type: action, token: commandTokenRef.current });
+      return;
+    }
+    if (action === 'log-visit' || action === 'add-review') {
+      setPendingPlaceAction(action);
+      setNotice(action === 'log-visit'
+        ? 'Choose the place you visited.'
+        : 'Choose a place, then choose the visit you want to review.');
+    } else if (action === 'edit-place' && !target) {
+      setNotice('Choose a place to edit.');
+    }
+  }, [approved, placesLoaded, places]);
 
   if (error) return <LoadState><h1>Manage Ramen Radar</h1><p>{error}</p></LoadState>;
-  if (user === undefined || (user && approved === undefined)) return <LoadState><p>Checking editor access…</p></LoadState>;
+  if (user === undefined || (user && (approved === undefined || (approved && !placesLoaded)))) return <LoadState><p>Checking editor access…</p></LoadState>;
   if (!user) return <LoadState><h1>Manage Ramen Radar</h1><p>Sign in with an approved Google account to add places and reviews.</p><button class="manage-primary" onClick={() => void signInWithGoogle().catch((reason) => setError(signInErrorMessage(reason)))}>Sign in with Google</button></LoadState>;
   if (!approved) return <LoadState><h1>Access pending</h1><p>You signed in successfully, but this account is not in the editor allowlist. Ask the project owner to add UID <code>{user.uid}</code> to the <code>editors</code> collection.</p><button onClick={() => void signOutUser()}>Sign out</button></LoadState>;
 
-  const choose = (place: FirestorePlace) => { setNotice(''); setSelected(place); setIsNew(false); };
+  const replacePlaceInLocation = (placeId?: string) => {
+    if (typeof location === 'undefined') return;
+    const url = new URL(location.href);
+    if (placeId) url.searchParams.set('place', placeId);
+    else url.searchParams.delete('place');
+    history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  };
+  const choose = (place: FirestorePlace) => {
+    setNotice('');
+    setSelected(place);
+    setIsNew(false);
+    replacePlaceInLocation(place.id);
+    if (pendingPlaceAction) {
+      commandTokenRef.current += 1;
+      setEditorCommand({ type: pendingPlaceAction, token: commandTokenRef.current });
+      setPendingPlaceAction(undefined);
+    } else {
+      setEditorCommand(undefined);
+    }
+  };
+  const closeEditor = () => {
+    setSelected(undefined);
+    setIsNew(false);
+    setEditorCommand(undefined);
+    setNotice('');
+    replacePlaceInLocation();
+  };
   const saved = (place: FirestorePlace, announce = true) => {
     setPlaces((current) => [...current.filter(({ id }) => id !== place.id), place].sort((a, b) => a.name.localeCompare(b.name)));
     setSelected(place);
@@ -867,7 +1020,7 @@ export default function ManageApp() {
       </header>
       {notice && <p class="manage-message" aria-live="polite">{notice}</p>}
 
-      <div class="manage-layout">
+      <div class={selected ? 'manage-layout manage-layout--editing' : 'manage-layout'}>
         <aside class="manage-sidebar">
           <div class="manage-sidebar-card">
             <button class="manage-primary" onClick={() => { setNotice(''); setStartingPlace(true); }}>Add place</button>
@@ -882,7 +1035,7 @@ export default function ManageApp() {
           </nav>
         </aside>
         <section>
-          {selected ? <PlaceEditor key={selected.id} initial={selected} isNew={isNew} onSaved={saved} /> : (
+          {selected ? <PlaceEditor key={selected.id} initial={selected} isNew={isNew} initialCommand={editorCommand} onSaved={saved} onBack={closeEditor} /> : (
             <div class="manage-empty">
               <p class="eyebrow">Ready</p>
               <h2>Choose a place</h2>
@@ -891,7 +1044,7 @@ export default function ManageApp() {
           )}
         </section>
       </div>
-      {startingPlace && <StartPlaceModal onClose={() => setStartingPlace(false)} onCreate={(place) => { setSelected(place); setIsNew(true); }} />}
+      {startingPlace && <StartPlaceModal onClose={() => setStartingPlace(false)} onCreate={(place) => { setEditorCommand(undefined); setPendingPlaceAction(undefined); setSelected(place); setIsNew(true); }} />}
     </main>
   );
 }
