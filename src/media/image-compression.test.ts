@@ -48,8 +48,8 @@ describe('prepareImageForUpload', () => {
     expect(result.wasCompressed).toBe(true);
     expect(result.originalBytes).toBe(source.size);
     expect(result.file).not.toBe(source);
-    expect(result.file.name).toBe('ramen.jpg');
-    expect(result.file.type).toBe('image/jpeg');
+    expect(result.file.name).toBe('ramen.webp');
+    expect(result.file.type).toBe('image/webp');
   });
 
   it('rejects unsupported or unsafe source images before decoding them', async () => {
@@ -65,5 +65,16 @@ describe('prepareImageForUpload', () => {
     await expect(prepareImageForUpload(tooLarge, runtime))
       .rejects.toThrow('Choose an image smaller than 25 MB.');
     expect(runtime.decode).not.toHaveBeenCalled();
+  });
+
+  it('rejects images with unsafe decoded dimensions before encoding them', async () => {
+    const runtime: ImageCompressionRuntime = {
+      decode: vi.fn().mockResolvedValue({ width: 8000, height: 5000 }),
+      encode: vi.fn(),
+    };
+
+    await expect(prepareImageForUpload(imageFile(CLOUDINARY_MAX_IMAGE_BYTES + 1), runtime))
+      .rejects.toThrow('Choose an image no larger than 32 megapixels.');
+    expect(runtime.encode).not.toHaveBeenCalled();
   });
 });
