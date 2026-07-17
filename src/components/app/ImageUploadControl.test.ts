@@ -126,18 +126,28 @@ describe('ImageUploadControl', () => {
   it('shows a safe error when the upload cannot finish', async () => {
     const container = document.createElement('div');
     document.body.append(container);
+    const file = new File(['ramen'], 'ramen.jpg', { type: 'image/jpeg' });
+    const prepare = vi.fn().mockResolvedValue({
+      file,
+      originalBytes: file.size,
+      wasCompressed: false,
+    });
     const upload = vi.fn().mockRejectedValue(new Error('Cloudinary internals'));
 
     await act(() => {
-      renderDom(h(ImageUploadControl, { label: 'Upload visit photo', config, onUploaded: vi.fn(), upload }), container);
+      renderDom(h(ImageUploadControl, { label: 'Upload visit photo', config, onUploaded: vi.fn(), prepare, upload }), container);
     });
     await act(() => {
-      selectFile(container.querySelector<HTMLInputElement>('input[type="file"]')!, new File(['ramen'], 'ramen.jpg', { type: 'image/jpeg' }));
+      selectFile(container.querySelector<HTMLInputElement>('input[type="file"]')!, file);
       setValue(container.querySelector<HTMLInputElement>('input[name="image-alt"]')!, 'A bowl of ramen');
     });
     const button = [...container.querySelectorAll<HTMLButtonElement>('button')]
       .find(({ textContent }) => textContent === 'Upload photo');
-    await act(async () => { button?.click(); });
+    await act(async () => {
+      button?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
     expect(container.querySelector('[role="alert"]')?.textContent)
       .toContain('Photo upload failed. Please try again.');

@@ -21,12 +21,18 @@ export function readCloudinaryConfig(environment: Record<string, string | undefi
   return cloudName && uploadPreset ? { cloudName, uploadPreset } : null;
 }
 
-export function validateCloudinaryImage(file: Pick<File, 'name' | 'size' | 'type'>): string | null {
+export function validateCloudinaryImageType(file: Pick<File, 'name' | 'type'>): string | null {
   const allowedExtensions = allowedImageTypes.get(file.type);
   const extension = file.name.toLocaleLowerCase().match(/\.[a-z0-9]+$/)?.[0];
   if (!allowedExtensions || !extension || !allowedExtensions.includes(extension)) {
     return 'Choose a JPEG, PNG, or WebP image.';
   }
+  return null;
+}
+
+export function validateCloudinaryImage(file: Pick<File, 'name' | 'size' | 'type'>): string | null {
+  const typeError = validateCloudinaryImageType(file);
+  if (typeError) return typeError;
   if (file.size > CLOUDINARY_MAX_IMAGE_BYTES) return 'Choose an image smaller than 5 MB.';
   return null;
 }
