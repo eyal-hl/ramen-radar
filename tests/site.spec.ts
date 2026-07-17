@@ -1,5 +1,38 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { resolve } from 'node:path';
+
+test('desktop place cards keep the image column proportionate and bounded', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setContent(`
+    <article class="place-card" style="width: 1000px">
+      <a class="place-card__image">
+        <img
+          alt=""
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='1000'/%3E"
+        >
+      </a>
+      <div class="place-card__body">
+        <div class="place-card__heading"><h2>Example ramen</h2></div>
+        <p>Short deterministic card copy.</p>
+      </div>
+    </article>
+  `);
+  await page.addStyleTag({ path: resolve('src/styles/global.css') });
+
+  const card = await page.locator('.place-card').boundingBox();
+  const imageColumn = await page.locator('.place-card__image').boundingBox();
+  const image = await page.locator('.place-card__image img').boundingBox();
+
+  expect(card).not.toBeNull();
+  expect(imageColumn).not.toBeNull();
+  expect(image).not.toBeNull();
+  expect(imageColumn!.width / card!.width).toBeCloseTo(0.38, 2);
+  expect(Math.abs(imageColumn!.height - card!.height)).toBeLessThan(4);
+  expect(image!.height).toBeCloseTo(imageColumn!.height, 0);
+  expect(card!.height).toBeGreaterThanOrEqual(250);
+  expect(card!.height).toBeLessThan(320);
+});
 
 test('filters places, persists search, and resets cleanly', async ({ page }) => {
   await page.goto('/');
