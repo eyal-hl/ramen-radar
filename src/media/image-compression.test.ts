@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CLOUDINARY_MAX_IMAGE_BYTES } from './cloudinary';
 import {
   IMAGE_COMPRESSION_MAX_SOURCE_BYTES,
+  IMAGE_COMPRESSION_TARGET_BYTES,
   prepareImageForUpload,
   type ImageCompressionRuntime,
 } from './image-compression';
@@ -11,7 +12,7 @@ function imageFile(size = 1, name = 'ramen.jpg', type = 'image/jpeg') {
 }
 
 function blobWithReportedSize(size: number) {
-  const blob = new Blob(['compressed'], { type: 'image/jpeg' });
+  const blob = new Blob(['compressed'], { type: 'image/webp' });
   Object.defineProperty(blob, 'size', { value: size });
   return blob;
 }
@@ -37,8 +38,8 @@ describe('prepareImageForUpload', () => {
     const runtime: ImageCompressionRuntime = {
       decode: vi.fn().mockResolvedValue({ width: 4000, height: 3000 }),
       encode: vi.fn()
-        .mockResolvedValueOnce(blobWithReportedSize(CLOUDINARY_MAX_IMAGE_BYTES + 1))
-        .mockResolvedValueOnce(blobWithReportedSize(CLOUDINARY_MAX_IMAGE_BYTES - 1)),
+        .mockResolvedValueOnce(blobWithReportedSize(IMAGE_COMPRESSION_TARGET_BYTES + 1))
+        .mockResolvedValueOnce(blobWithReportedSize(IMAGE_COMPRESSION_TARGET_BYTES - 1)),
     };
 
     const result = await prepareImageForUpload(source, runtime);
