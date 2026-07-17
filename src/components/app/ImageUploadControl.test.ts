@@ -56,6 +56,35 @@ describe('ImageUploadControl', () => {
     });
   });
 
+  it('prepares an oversized image before passing it to the upload service', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const source = new File(['original'], 'ramen.png', { type: 'image/png' });
+    const compressed = new File(['compressed'], 'ramen.jpg', { type: 'image/jpeg' });
+    const prepare = vi.fn().mockResolvedValue({
+      file: compressed,
+      originalBytes: 8 * 1024 * 1024,
+      wasCompressed: true,
+    });
+    const upload = vi.fn().mockResolvedValue('https://res.cloudinary.com/ramen-radar/image/upload/v1/ramen.jpg');
+
+    await act(() => {
+      renderDom(h(ImageUploadControl, { label: 'Upload gallery photo', config, onUploaded: vi.fn(), prepare, upload }), container);
+    });
+    await act(() => {
+      selectFile(container.querySelector<HTMLInputElement>('input[type="file"]')!, source);
+      setValue(container.querySelector<HTMLInputElement>('input[name="image-alt"]')!, 'A bowl of ramen');
+    });
+    const button = [...container.querySelectorAll<HTMLButtonElement>('button')]
+      .find(({ textContent }) => textContent === 'Upload photo');
+
+    await act(async () => { button?.click(); });
+
+    expect(prepare).toHaveBeenCalledWith(source);
+    expect(upload).toHaveBeenCalledWith(compressed, config);
+    expect(container.textContent).toContain('compressed');
+  });
+
   it('does not block the enclosing place form before a photo is chosen', async () => {
     const container = document.createElement('div');
     document.body.append(container);
